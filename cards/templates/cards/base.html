@@ -1,0 +1,56 @@
+{% load static %}<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}C10 Magic{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Cinzel:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'cards/style.css' %}">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23c9a227'/><text x='16' y='22' font-size='15' text-anchor='middle' font-family='serif' font-weight='bold' fill='%23141019'>C10</text></svg>">
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="{% url 'cards:search' %}">
+        <span class="brand-mark">C10</span>
+        <span class="brand-name">Magic</span>
+      </a>
+
+      <nav class="nav">
+        <a href="{% url 'cards:search' %}" class="{% if request.resolver_match.url_name == 'search' %}active{% endif %}">Buscar</a>
+        <a href="{% url 'cards:decks' %}" class="{% if request.resolver_match.url_name in 'decks builder deck_create expert_deck' %}active{% endif %}">Decks</a>
+        <a href="{% url 'cards:manage' %}" class="{% if request.resolver_match.url_name == 'manage' %}active{% endif %}">Coleção</a>
+        <a href="{% url 'admin:index' %}">Admin</a>
+      </nav>
+
+      <div class="updater-pill" id="updater-pill" data-url="{% url 'cards:status' %}" hidden>
+        <span class="spinner"></span>
+        <span id="updater-pill-text">Atualizando…</span>
+      </div>
+    </div>
+  </header>
+
+  {% if messages %}
+    <div class="messages">
+      {% for message in messages %}
+        <div class="message message-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    C10 Magic · dados e imagens do <a href="https://scryfall.com" target="_blank" rel="noopener">Scryfall</a>
+    · preços em reais da <a href="https://www.ligamagic.com.br" target="_blank" rel="noopener">LigaMagic</a>
+    · Magic: The Gathering é marca da Wizards of the Coast
+  </footer>
+
+  <script src="{% static 'cards/app.js' %}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

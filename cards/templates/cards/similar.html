@@ -1,0 +1,110 @@
+{% extends "cards/base.html" %}
+{% load magic humanize %}
+
+{% block title %}Similares a {{ ref.name }} · C10 Magic{% endblock %}
+
+{% block content %}
+<a class="back" href="{% url 'cards:scryfall_detail' ref.data.id %}">‹ {{ ref.name }}</a>
+
+<h1 class="page-title">Cartas similares</h1>
+
+<div class="similar">
+  <aside class="similar-panel">
+    <div class="ref-card">
+      {% if ref.image_url %}<img src="{{ ref.image_url }}" alt="{{ ref.name }}">{% endif %}
+      <div>
+        <strong>{{ ref.name }}</strong>
+        <div>{{ ref.mana_cost|mana }}</div>
+        <div class="muted small">{{ ref.type_line }}</div>
+        <div class="price">
+          {% if ref.price_brl is not None %}{{ ref.price_brl|brl }}{% elif ref.brl_estimate %}≈ {{ ref.brl_estimate|brl }}{% else %}—{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <form method="get" id="similar-form" data-url="{% url 'cards:similar' ref.data.id %}">
+      {{ form.s }}
+
+      <fieldset>
+        <legend>{{ form.max_price.label }}</legend>
+        <div class="price-slider">
+          <input type="range" id="price-range" min="0" max="{% if ref.reference_price %}{{ ref.reference_price|price_slider_max }}{% else %}50{% endif %}" step="0.25" value="{{ form.max_price.value|default_if_none:''|stringformat:'s' }}" aria-label="Preço máximo">
+          {{ form.max_price }}
+        </div>
+        <div class="presets slider-presets">
+          {% if ref.reference_price %}
+            <button type="button" data-price="{{ ref.reference_price|stringformat:'s' }}">Preço da referência</button>
+            <button type="button" data-price-factor="0.5" data-base="{{ ref.reference_price|stringformat:'s' }}">Metade</button>
+          {% endif %}
+          <button type="button" data-price="5">R$ 5</button>
+          <button type="button" data-price="">Sem limite</button>
+        </div>
+        <small class="hint">Convertido para dólar na busca geral (US$ 1 = {{ rate|brl }}).</small>
+      </fieldset>
+
+      <fieldset>
+        <legend>{{ form.tags.label }}</legend>
+        {% if ref.tags %}
+          <small class="hint">O número indica em quantas cartas a tag aparece: quanto menor, mais específica.</small>
+          <div class="tag-picker">
+            {% for option, tag in form.tag_options %}
+              <label class="chip">
+                {{ option.tag }}
+                <span>{{ tag.text }}{% if tag.count %} <small>{{ tag.count|intcomma }}</small>{% endif %}</span>
+              </label>
+            {% endfor %}
+          </div>
+        {% elif tags_syncing or not ref.tags_ready %}
+          <p class="muted small"><span class="spinner inline"></span> Baixando as tags do Scryfall (cerca de um minuto). Recarregue a página em seguida.</p>
+        {% else %}
+          <p class="muted small">Esta carta não tem tags de função no Scryfall Tagger.</p>
+        {% endif %}
+      </fieldset>
+
+      <fieldset>
+        <legend>{{ form.colors.label }}</legend>
+        {% if ref.colors %}
+          <div class="pips">
+            {% for opt in form.colors %}
+              <label class="pip" title="{{ opt.data.value|color_name }}">
+                {{ opt.tag }}
+                <img src="https://svgs.scryfall.io/card-symbols/{{ opt.data.value }}.svg" alt="{{ opt.data.value|color_name }}">
+              </label>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted small">A carta de referência é incolor.</p>
+        {% endif %}
+        <label class="check">{{ form.only_ref_colors }} {{ form.only_ref_colors.label }}</label>
+      </fieldset>
+
+      <fieldset>
+        <legend>{{ form.card_types.label }}</legend>
+        <div class="chips">
+          {% for opt in form.card_types %}
+            <label class="chip{% if opt.data.value == ref.main_type %} is-reference{% endif %}" {% if opt.data.value == ref.main_type %}title="Tipo da carta de referência"{% endif %}>{{ opt.tag }}<span>{{ opt.choice_label }}</span></label>
+          {% endfor %}
+        </div>
+        <small class="hint">Nenhum marcado = qualquer tipo.</small>
+      </fieldset>
+
+      <fieldset>
+        <legend>Outros</legend>
+        <label class="check">{{ form.only_owned }} {{ form.only_owned.label }}</label>
+        <label class="stack-label">{{ form.cmc_diff.label }} {{ form.cmc_diff }}
+          {% if form.cmc_diff.help_text %}<small class="hint">{{ form.cmc_diff.help_text }}</small>{% endif %}
+        </label>
+        <label class="stack-label">{{ form.sort.label }} {{ form.sort }}</label>
+      </fieldset>
+
+      <noscript><button class="btn btn-primary" type="submit">Atualizar</button></noscript>
+    </form>
+  </aside>
+
+  <section class="similar-results" id="similar-results">
+    {% include "cards/_similar_results.html" %}
+  </section>
+</div>
+
+<span hidden id="prices-api" data-url="{% url 'cards:prices' %}"></span>
+{% endblock %}

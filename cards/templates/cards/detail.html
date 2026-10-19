@@ -1,0 +1,181 @@
+{% extends "cards/base.html" %}
+{% load magic %}
+
+{% block title %}{{ card.name }} · C10 Magic{% endblock %}
+
+{% block content %}
+<a class="back" href="{% if back %}{{ back }}{% else %}{% url 'cards:search' %}{% endif %}">‹ Voltar</a>
+
+<article class="cd">
+
+  {# ---------- coluna da carta: imagem + preço + ações ---------- #}
+  <aside class="cd-side">
+    {% if card.image_url %}
+      <div class="flip" id="flip">
+        <img class="face front" src="{{ card.image_url_large|default:card.image_url }}" alt="{{ card.name }}">
+        {% if card.image_url_back %}
+          <img class="face back" src="{{ card.image_url_back }}" alt="{{ card.name }} (verso)">
+        {% endif %}
+      </div>
+      {% if card.image_url_back %}
+        <button type="button" class="btn btn-ghost btn-block btn-small" data-flip="flip">↻ Virar carta</button>
+      {% endif %}
+    {% else %}
+      <div class="card-placeholder big"><strong>{{ card.name }}</strong><span>Sem imagem</span></div>
+    {% endif %}
+
+    <section class="cd-buy" aria-label="Preço e ações">
+      <div class="cd-price">
+        <span class="label">LigaMagic · menor preço</span>
+        <strong class="price">{{ card.price_brl|brl }}</strong>
+        {% if card.price_brl is None and card.price_usd %}
+          <small class="muted">≈ {{ card.price_usd|to_brl:rate|brl }} pelo dólar</small>
+        {% endif %}
+        {% if card.ligamagic_error %}<small class="warn">{{ card.ligamagic_error }}</small>{% endif %}
+        <span class="cd-usd">
+          Scryfall {{ card.price_usd|usd }}{% if card.price_usd_foil %} · foil {{ card.price_usd_foil|usd }}{% endif %}
+        </span>
+        {% if card.pk and card.quantity > 1 and card.price_brl is not None %}
+          <small class="muted">{{ card.quantity }} cópias = {{ card.total_brl|brl }}</small>
+        {% endif %}
+      </div>
+
+      {% if card.pk %}
+        <div class="cd-owned is-owned">✓ Na sua coleção</div>
+        <form method="post" action="{% url 'cards:quantity' card.pk %}" class="cd-qty">
+          {% csrf_token %}
+          <label for="cd-quantity">Quantidade</label>
+          <input id="cd-quantity" type="number" name="quantity" value="{{ card.quantity }}" min="0">
+          <button class="btn btn-ghost" type="submit">Salvar</button>
+        </form>
+      {% else %}
+        <div class="cd-owned {% if owned %}is-owned{% endif %}">
+          {% if owned %}
+            ✓ Você tem <strong>{{ owned_quantity }}</strong> cópia{{ owned_quantity|pluralize }}
+            {% for c in owned %}· <a href="{% url 'cards:detail' c.pk %}">ver{% if c.set_code %} {{ c.set_code|upper }}{% endif %}</a>{% endfor %}
+          {% else %}
+            Esta carta não está na sua coleção.
+          {% endif %}
+        </div>
+        <form method="post" action="{% url 'cards:scryfall_add' scryfall_id %}" class="cd-qty">
+          {% csrf_token %}
+          <label for="cd-quantity">Quantidade</label>
+          <input id="cd-quantity" type="number" name="quantity" value="1" min="1">
+          <button class="btn btn-primary" type="submit">+ Adicionar</button>
+        </form>
+      {% endif %}
+
+      {% if card.scryfall_id %}
+        <a class="btn btn-similar btn-block" href="{% url 'cards:similar' card.scryfall_id %}">≈ Encontrar similares</a>
+      {% endif %}
+
+      <nav class="cd-links" aria-label="Links da carta">
+        <a href="{% url 'cards:search' %}?q=%21%22{{ card.name|urlencode }}%22&amp;unique=on&amp;sort=released&amp;order=desc">Outras impressões</a>
+        {% if card.scryfall_url %}<a href="{{ card.scryfall_url }}" target="_blank" rel="noopener">Scryfall ↗</a>{% endif %}
+        {% if card.ligamagic_url %}<a href="{{ card.ligamagic_url }}" target="_blank" rel="noopener">LigaMagic ↗</a>{% endif %}
+      </nav>
+
+      <footer class="cd-updated">
+        <span>Atualizado: Scryfall {{ card.scryfall_updated_at|date:"d/m H:i"|default:"nunca" }} · LigaMagic {{ card.ligamagic_updated_at|date:"d/m H:i"|default:"nunca" }}</span>
+        {% if card.next_refresh_at %}<span>Próxima atualização a partir de {{ card.next_refresh_at|date:"d/m/Y" }}</span>{% endif %}
+        {% if card.pk %}
+          <form method="post" action="{% url 'cards:refresh' card.pk %}">
+            {% csrf_token %}
+            <button class="link-btn" type="submit" {% if not card.is_stale %}disabled title="Atualizada há menos de uma semana"{% endif %}>↻ Atualizar dados</button>
+          </form>
+        {% endif %}
+      </footer>
+      {% if card.scryfall_error %}<p class="warn small">{{ card.scryfall_error }}</p>{% endif %}
+    </section>
+  </aside>
+
+  {# ---------- coluna de informações ---------- #}
+  <div class="cd-main">
+    <header class="cd-head">
+      <h1>{{ card.name }} <span class="cost">{{ card.mana_cost|mana }}</span></h1>
+      {% if card.printed_name and card.printed_name != card.name %}<p class="muted cd-printed">{{ card.printed_name }}</p>{% endif %}
+      <div class="cd-subline">
+        <span class="cd-type">{{ card.type_line|default:"—" }}</span>
+        {% if card.set_name %}
+          <span class="cd-set" title="{{ card.set_name }}">{{ card.set_name }} <span class="set-code">{{ card.set_code|upper }} #{{ card.collector_number }}</span></span>
+        {% endif %}
+        <span class="cd-rarity"><span class="rarity-dot rarity-{{ card.rarity }}"></span> {{ card.rarity|rarity_label }}</span>
+      </div>
+    </header>
+
+    {% if card.oracle_text %}<div class="oracle">{{ card.oracle_text|oracle }}</div>{% endif %}
+    {% if card.flavor_text %}<blockquote class="flavor">{{ card.flavor_text|linebreaksbr }}</blockquote>{% endif %}
+
+    <dl class="cd-stats">
+      {% if card.power or card.toughness %}<div><dt>P/R</dt><dd>{{ card.power }}/{{ card.toughness }}</dd></div>{% endif %}
+      {% if card.loyalty %}<div><dt>Lealdade</dt><dd>{{ card.loyalty }}</dd></div>{% endif %}
+      <div><dt>Valor de mana</dt><dd>{{ card.cmc|floatformat:"-1"|default:"—" }}</dd></div>
+      <div><dt>Cores</dt><dd>{{ card.colors|color_pips }}</dd></div>
+      <div><dt>Identidade</dt><dd>{{ card.color_identity|color_pips }}</dd></div>
+      {% if card.artist %}<div><dt>Artista</dt><dd>{{ card.artist }}</dd></div>{% endif %}
+    </dl>
+
+    {% if card.keyword_list %}
+      <div class="chips static cd-keywords">
+        {% for kw in card.keyword_list %}<a class="chip" href="{% url 'cards:search' %}?q=kw%3A{{ kw|urlencode }}"><span>{{ kw|title }}</span></a>{% endfor %}
+      </div>
+    {% endif %}
+
+    <div class="cd-sections">
+      <section class="cd-section tags">
+        <h2>Tags <small class="muted">do <a href="https://tagger.scryfall.com" target="_blank" rel="noopener">Scryfall Tagger</a></small></h2>
+
+        {% if tags.oracle %}
+          <h3>Função</h3>
+          <div class="chips static">
+            {% for label, text in tags.oracle %}<a class="chip tag-oracle" href="{% url 'cards:search' %}?q=otag%3A{{ label|urlencode }}" title="Cartas com otag:{{ label }}"><span>{{ text }}</span></a>{% endfor %}
+          </div>
+        {% endif %}
+
+        {% if tags.illustration %}
+          <details class="cd-art-tags">
+            <summary><h3>Arte <small class="muted">{{ tags.illustration|length }}</small></h3></summary>
+            <div class="chips static">
+              {% for label, text in tags.illustration %}<a class="chip tag-art" href="{% url 'cards:search' %}?q=art%3A{{ label|urlencode }}" title="Cartas com art:{{ label }}"><span>{{ text }}</span></a>{% endfor %}
+            </div>
+          </details>
+        {% endif %}
+
+        {% if not tags.oracle and not tags.illustration %}
+          {% if tags_syncing or not tags.oracle_ready %}
+            <p class="muted small"><span class="spinner inline"></span> Baixando as tags do Scryfall pela primeira vez (leva cerca de um minuto). Recarregue a página em seguida.</p>
+          {% else %}
+            <p class="muted small">Nenhuma tag para esta carta.</p>
+          {% endif %}
+        {% elif tags_syncing and not tags.art_ready %}
+          <p class="muted small"><span class="spinner inline"></span> Tags de arte ainda sendo baixadas…</p>
+        {% endif %}
+      </section>
+
+      {% if card.legalities %}
+        <section class="cd-section">
+          <h2>Formatos</h2>
+          <ul class="cd-formats">
+            {% for fmt, status in card.legalities %}
+              <li class="legal-{{ status }}" title="{{ fmt }}: {{ status|legality_label }}">
+                <span class="dot"></span>{{ fmt }}
+                {% if status != "legal" and status != "not_legal" %}<em>{{ status|legality_label }}</em>{% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+          <p class="cd-legend small muted"><span class="dot legal"></span> legal <span class="dot not"></span> não legal <span class="dot banned"></span> banida/restrita</p>
+        </section>
+      {% endif %}
+    </div>
+
+    {% if others %}
+      <section class="cd-section">
+        <h2>Outras entradas da mesma carta</h2>
+        <ul class="plain">
+          {% for other in others %}<li><a href="{% url 'cards:detail' other.pk %}">{{ other.name }}</a> <span class="set-code">{{ other.set_code|upper }}</span> {{ other.price_brl|brl }}</li>{% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+  </div>
+</article>
+{% endblock %}

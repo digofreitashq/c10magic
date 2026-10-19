@@ -1,0 +1,53 @@
+{% comment %}
+  Ações de um deck (grade e editor): renomear, orçamento, exportar, clonar,
+  reconstruir e excluir. `full` = botão grande (editor); `next` = para onde voltar.
+{% endcomment %}
+<details class="deck-menu{% if full %} full{% endif %}">
+  <summary class="{% if full %}btn btn-ghost{% else %}menu-dot{% endif %}" title="Ações do deck" aria-label="Ações do deck {{ deck.name }}">{% if full %}Ações ▾{% else %}⋯{% endif %}</summary>
+  <div class="menu-panel">
+    <form method="post" action="{% url 'cards:deck_rename' deck.pk %}" class="menu-form">
+      {% csrf_token %}
+      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+      <label>Nome
+        <input type="text" name="name" maxlength="255" value="{% if deck.name_locked %}{{ deck.name }}{% endif %}"
+               placeholder="{{ deck.name|default:'Nome do comandante' }}">
+      </label>
+      <button class="btn btn-ghost btn-small" type="submit">Renomear</button>
+      <small class="hint">Vazio = nome do comandante</small>
+    </form>
+
+    <form method="post" action="{% url 'cards:expert_budget' deck.pk %}" class="menu-form">
+      {% csrf_token %}
+      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+      <label>Orçamento (R$)
+        <input type="number" name="budget" min="0" step="1" placeholder="Sem limite"
+               value="{% if deck.budget is not None %}{{ deck.budget|stringformat:'s' }}{% endif %}">
+      </label>
+      <button class="btn btn-ghost btn-small" type="submit">Salvar</button>
+    </form>
+
+    <div class="menu-section">
+      <span class="menu-label">Exportar</span>
+      {% for key, fmt in export_formats.items %}
+        <div class="export-row">
+          <a href="{% url 'cards:deck_export' deck.pk key %}" target="_blank" rel="noopener">{{ fmt.0 }}</a>
+          <a href="{% url 'cards:deck_export' deck.pk key %}?download=1" title="Baixar como .txt" aria-label="Baixar {{ fmt.0 }}">⤓</a>
+        </div>
+      {% endfor %}
+    </div>
+
+    <div class="menu-actions">
+      <form method="post" action="{% url 'cards:deck_clone' deck.pk %}">
+        {% csrf_token %}
+        <button class="btn btn-ghost btn-small" type="submit">Clonar</button>
+      </form>
+      {% if deck.build_report %}
+        <form method="post" action="{% url 'cards:builder_rebuild' deck.pk %}" onsubmit="return confirm('Reconstruir o deck? As trocas feitas à mão serão perdidas.')">
+          {% csrf_token %}
+          <button class="btn btn-ghost btn-small" type="submit" data-building>Reconstruir</button>
+        </form>
+      {% endif %}
+      {% include "cards/_deck_delete.html" with full=True %}
+    </div>
+  </div>
+</details>

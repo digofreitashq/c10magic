@@ -1,0 +1,28 @@
+{% load magic %}<div class="card-grid">
+  {% for card in items %}
+    <a class="card-tile {% if card.owned %}is-owned{% endif %}" href="{{ card.detail_url }}">
+      <div class="card-image">
+        {% if card.image_url %}
+          <img src="{{ card.image_url }}" alt="{{ card.name }}" loading="lazy">
+        {% else %}
+          <div class="card-placeholder">
+            <strong>{{ card.name }}</strong>
+            <span>{% if card.loading %}Carregando dados…{% else %}{{ card.type_line|default:"Sem imagem" }}{% endif %}</span>
+          </div>
+        {% endif %}
+        {% if card.owned %}
+          <span class="owned-badge" title="{% if card.owned_print %}Você tem esta impressão{% else %}Você tem esta carta{% endif %}">✓ {% if card.owned > 1 %}×{{ card.owned }}{% else %}Tenho{% endif %}</span>
+        {% endif %}
+      </div>
+      <div class="card-meta">
+        <div class="card-name" title="{{ card.name }}">{{ card.name }}</div>
+        <div class="card-sub">
+          <span class="rarity-dot rarity-{{ card.rarity }}"></span>
+          <span class="set-code">{{ card.set_code|upper|default:"—" }}</span>
+          {% include "cards/_brl.html" %}
+        </div>
+        {% if card.price_usd %}<div class="card-usd">{{ card.price_usd|usd }}</div>{% endif %}
+      </div>
+    </a>
+  {% endfor %}
+</div>

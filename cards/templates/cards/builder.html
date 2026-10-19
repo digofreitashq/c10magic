@@ -1,0 +1,53 @@
+{% extends "cards/base.html" %}
+{% load magic %}
+
+{% block title %}Gerar deck · C10 Magic{% endblock %}
+
+{% block content %}
+<a class="back" href="{% url 'cards:decks' %}">‹ Decks</a>
+<h1 class="page-title">Gerar deck</h1>
+<p class="muted lead">Escolha o comandante e, se quiser, um orçamento. O deck sai com 40 terrenos básicos e as mágicas escolhidas pelo EDHREC e pelas cartas mais populares do Scryfall, respeitando o orçamento.</p>
+
+<div class="expert-start">
+  <section class="panel">
+    <form method="post" class="stack" id="builder-form">
+      {% csrf_token %}
+      {% for error in form.non_field_errors %}<p class="error">{{ error }}</p>{% endfor %}
+
+      <label for="{{ form.commander.id_for_label }}">{{ form.commander.label }}</label>
+      <div class="commander-row">
+        {{ form.commander }}
+        <button type="button" class="btn btn-ghost add-partner" id="toggle-partner"
+                aria-controls="partner-field" aria-expanded="{% if form.partner.value %}true{% else %}false{% endif %}"
+                title="{% if form.partner.value %}Remover o segundo comandante{% else %}Adicionar um segundo comandante (partner, background…){% endif %}">{% if form.partner.value %}−{% else %}+{% endif %}</button>
+      </div>
+      {% for error in form.commander.errors %}<p class="error">{{ error }}</p>{% endfor %}
+
+      <label id="partner-field" {% if not form.partner.value %}hidden{% endif %}>
+        {{ form.partner.label }} {{ form.partner }} <small class="hint">{{ form.partner.help_text }}</small>
+      </label>
+
+      <label>{{ form.budget.label }} {{ form.budget }} <small class="hint">{{ form.budget.help_text }}</small></label>
+      <p class="small muted" id="budget-average"></p>
+
+      <datalist id="card-suggestions" data-url="{% url 'cards:autocomplete' %}"></datalist>
+
+      <button class="btn btn-primary" type="submit" data-building>Construir deck</button>
+      <p class="small muted building-hint" hidden><span class="spinner inline"></span> Montando o deck: consultando o EDHREC e o Scryfall, avaliando centenas de cartas… pode levar até um minuto.</p>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Como o deck é montado</h2>
+    <ol class="how-list">
+      <li><strong>Candidatas:</strong> as cartas recomendadas pelo EDHREC para o comandante e as mais populares do Scryfall para cada papel, dentro da identidade de cor e legais em Commander.</li>
+      <li><strong>Nota:</strong> % dos decks do comandante que usam a carta e a sinergia com ele. Cartas que vêm só do Scryfall valem menos.</li>
+      <li><strong>Esqueleto:</strong> 7 de ramp, 9 de compra, 8 de remoção e 2 board wipes; o resto por nota, com a quantidade de criaturas perto da média do EDHREC.</li>
+      <li><strong>Orçamento:</strong> troca as cartas que mais economizam perdendo menos qualidade, mantendo o papel de cada uma, até caber. Se sobrar dinheiro, troca por cartas melhores.</li>
+      <li><strong>Terrenos:</strong> 40 básicos divididos pelas cores, conforme os símbolos de mana das cartas.</li>
+    </ol>
+    <p class="small muted">O deck abre no editor, onde dá para ver o pool, trocar cartas e reconstruir.</p>
+
+  </section>
+</div>
+{% endblock %}

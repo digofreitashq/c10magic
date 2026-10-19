@@ -1,0 +1,24 @@
+{% load humanize %}<div class="results-bar">
+  <div class="results-count">
+    {% if error %}
+      <span class="error">{{ error }}</span>
+    {% else %}
+      <strong>{{ total|intcomma }}</strong> carta{{ total|pluralize }} similar{{ total|pluralize:"es" }}
+      <span class="muted">{% if only_owned %}na sua coleção{% else %}no Scryfall{% endif %}</span>
+    {% endif %}
+    {% for warning in warnings %}<div class="warn small">{{ warning }}</div>{% endfor %}
+  </div>
+  {% if scryfall_query %}
+    <a class="query-link" href="{% url 'cards:search' %}?q={{ scryfall_query|urlencode }}" title="Abrir esta busca na página de busca"><code>{{ scryfall_query }}</code></a>
+  {% endif %}
+</div>
+
+{% if items %}
+  {% include "cards/_card_grid.html" %}
+  {% include "cards/_pagination.html" %}
+{% elif not error %}
+  <div class="empty">
+    <h2>Nenhuma carta similar</h2>
+    <p>Desmarque alguma tag ou aumente o preço máximo.</p>
+  </div>
+{% endif %}

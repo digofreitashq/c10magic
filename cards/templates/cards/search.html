@@ -1,0 +1,264 @@
+{% extends "cards/base.html" %}
+{% load magic humanize %}
+
+{% block title %}{% if form.q.value %}{{ form.q.value }} · {% endif %}C10 Magic{% endblock %}
+
+{% block content %}
+<form method="get" class="search" id="search-form">
+
+  <div class="scope">
+    {% for opt in form.scope %}
+      <label class="scope-option">
+        <input type="radio" name="scope" value="{{ opt.data.value }}" {% if opt.data.value == scope %}checked{% endif %}>
+        <span>{{ opt.choice_label }}{% if opt.data.value == "collection" %} <small>{{ collection_size|intcomma }}</small>{% endif %}</span>
+      </label>
+    {% endfor %}
+  </div>
+
+  <div class="search-bar">
+    <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2a8 8 0 0 1 6.32 12.9l5.39 5.4-1.41 1.4-5.4-5.38A8 8 0 1 1 10 2zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></svg>
+    {{ form.q }}
+    <button type="submit" class="btn btn-primary">Buscar</button>
+  </div>
+
+  <div class="syntax-help">
+    <span>Exemplos:</span>
+    <a href="?q=t%3Acreature+c%3Ag+mv%3C%3D2">t:creature c:g mv&lt;=2</a>
+    <a href="?q=o%3A%22draw+a+card%22+brl%3C1">o:"draw a card" brl&lt;1</a>
+    <a href="?q=id%3C%3Desper+is%3Acommander&amp;sort=edhrec">id&lt;=esper is:commander</a>
+    <a href="?q=kw%3Aflying+pow%3E%3D4">kw:flying pow&gt;=4</a>
+    <a href="?q=f%3Apauper+r%3Ac&amp;sort=edhrec">f:pauper r:c</a>
+    <a href="#" data-toggle="syntax-table">ver todas as chaves</a>
+  </div>
+
+  <div class="syntax-table" id="syntax-table" hidden>
+    <p class="muted small">Em <strong>Todas as cartas</strong> vale toda a <a href="https://scryfall.com/docs/syntax" target="_blank" rel="noopener">sintaxe do Scryfall</a>; <code>brl</code> é convertido para dólar pela cotação (US$ 1 = {{ rate|brl }}). Em <strong>Minha coleção</strong> valem as chaves abaixo, com o preço real da LigaMagic.</p>
+    <table>
+      <tr><th>Chave</th><th>Exemplo</th><th>O que faz</th></tr>
+      <tr><td><code>t:</code> tipo</td><td><code>t:legendary t:elf</code></td><td>Linha de tipo contém</td></tr>
+      <tr><td><code>o:</code> texto</td><td><code>o:"enters the battlefield"</code></td><td>Texto de regras contém</td></tr>
+      <tr><td><code>c:</code> cor</td><td><code>c:ur</code> <code>c=ur</code> <code>c&lt;=ur</code> <code>c:m</code> <code>c:c</code></td><td>Cores: contém / exatas / no máximo / multicolor / incolor</td></tr>
+      <tr><td><code>id:</code> identidade</td><td><code>id:golgari</code> <code>id=wubrg</code></td><td>Identidade de cor (Commander)</td></tr>
+      <tr><td><code>mv</code> / <code>cmc</code></td><td><code>mv&gt;=5</code> <code>cmc=3</code></td><td>Valor de mana</td></tr>
+      <tr><td><code>pow</code> <code>tou</code></td><td><code>pow&gt;=3</code> <code>tou&gt;pow</code></td><td>Poder / resistência</td></tr>
+      <tr><td><code>r:</code> raridade</td><td><code>r:m</code> <code>r&gt;=rare</code></td><td>common, uncommon, rare, mythic</td></tr>
+      <tr><td><code>s:</code> edição</td><td><code>s:ltr</code></td><td>Código da edição</td></tr>
+      <tr><td><code>kw:</code> palavra-chave</td><td><code>kw:trample</code></td><td>Habilidade de palavra-chave</td></tr>
+      <tr><td><code>f:</code> formato</td><td><code>f:commander</code> <code>banned:modern</code></td><td>Legal / banida no formato</td></tr>
+      <tr><td><code>brl</code> / <code>r$</code></td><td><code>brl&lt;=10</code> <code>brl&gt;50</code></td><td>Preço em reais</td></tr>
+      <tr><td><code>usd</code></td><td><code>usd&lt;1</code></td><td>Preço em dólar (Scryfall)</td></tr>
+      <tr><td><code>m:</code> mana</td><td><code>m:{G}{G}</code> <code>m:uu</code></td><td>Custo de mana contém os símbolos</td></tr>
+      <tr><td><code>is:</code></td><td><code>is:commander</code> <code>is:legendary</code> <code>is:permanent</code> <code>is:vanilla</code> <code>is:dfc</code></td><td>Atalhos</td></tr>
+      <tr><td><code>a:</code> <code>ft:</code> <code>year</code></td><td><code>a:"rebecca guay"</code> <code>year&lt;2000</code></td><td>Artista, texto de ambientação, ano</td></tr>
+      <tr><td>Só na coleção</td><td><code>qtd&gt;=4</code> <code>is:unpriced</code></td><td>Quantidade, cartas ainda sem preço</td></tr>
+      <tr><td>Operadores</td><td><code>-t:land</code> <code>t:elf or t:goblin</code> <code>!"Sol Ring"</code></td><td><code>-</code> nega, <code>or</code> combina, <code>!</code> nome exato</td></tr>
+    </table>
+  </div>
+
+  <details class="filters" {% if advanced_open %}open{% endif %}>
+    <summary>
+      Filtros avançados
+      {% if form.active_filter_count %}<span class="badge">{{ form.active_filter_count }}</span>{% endif %}
+    </summary>
+
+    <div class="filter-grid">
+
+      <fieldset>
+        <legend>Cores</legend>
+        <div class="pips">
+          {% for opt in form.colors %}
+            <label class="pip" title="{{ opt.choice_label }}">
+              {{ opt.tag }}
+              <img src="https://svgs.scryfall.io/card-symbols/{{ opt.data.value }}.svg" alt="{{ opt.choice_label }}">
+            </label>
+          {% endfor %}
+        </div>
+        {{ form.color_mode }}
+      </fieldset>
+
+      <fieldset>
+        <legend>Identidade de cor <small>(Commander)</small></legend>
+        <div class="pips">
+          {% for opt in form.identity %}
+            <label class="pip" title="{{ opt.choice_label }}">
+              {{ opt.tag }}
+              <img src="https://svgs.scryfall.io/card-symbols/{{ opt.data.value }}.svg" alt="{{ opt.choice_label }}">
+            </label>
+          {% endfor %}
+        </div>
+        <small class="hint">Cartas que cabem num deck dessas cores</small>
+      </fieldset>
+
+      <fieldset class="span-2">
+        <legend>Tipos</legend>
+        <div class="chips">
+          {% for opt in form.types %}
+            <label class="chip">{{ opt.tag }}<span>{{ opt.choice_label }}</span></label>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Raridade</legend>
+        <div class="chips">
+          {% for opt in form.rarities %}
+            <label class="chip rarity-{{ opt.data.value }}">{{ opt.tag }}<span>{{ opt.choice_label }}</span></label>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Preço em reais</legend>
+        <div class="range">{{ form.price_min }}<span>até</span>{{ form.price_max }}</div>
+        <div class="presets" data-target-min="id_price_min" data-target-max="id_price_max">
+          <button type="button" data-max="1">≤ R$1</button>
+          <button type="button" data-max="5">≤ R$5</button>
+          <button type="button" data-max="20">≤ R$20</button>
+          <button type="button" data-min="50">≥ R$50</button>
+        </div>
+        <label class="check">{{ form.only_priced }} {{ form.only_priced.label }}</label>
+        <small class="hint">
+          {% if scope == "collection" %}Preço da LigaMagic.{% else %}Em todas as cartas, convertido para dólar (US$ 1 = {{ rate|brl }}).{% endif %}
+        </small>
+      </fieldset>
+
+      <fieldset>
+        <legend>Preço em dólar <small>(Scryfall)</small></legend>
+        <div class="range">{{ form.usd_min }}<span>até</span>{{ form.usd_max }}</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Valor de mana</legend>
+        <div class="range">{{ form.cmc_min }}<span>até</span>{{ form.cmc_max }}</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Poder / Resistência</legend>
+        <div class="range">{{ form.power_min }}<span>até</span>{{ form.power_max }}</div>
+        <div class="range">{{ form.toughness_min }}<span>até</span>{{ form.toughness_max }}</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Nome</legend>
+        {{ form.name }}
+        <legend class="sub">Texto da carta</legend>
+        {{ form.text }}
+      </fieldset>
+
+      <fieldset>
+        <legend>Subtipo</legend>
+        {{ form.subtype }}
+        <legend class="sub">Palavra-chave</legend>
+        {{ form.keyword }}
+      </fieldset>
+
+      <fieldset>
+        <legend>Edição</legend>
+        {{ form.set_code }}
+        <legend class="sub">Formato</legend>
+        {{ form.format }}
+      </fieldset>
+
+      <fieldset>
+        <legend>Impressões</legend>
+        <label class="check">{{ form.unique }} {{ form.unique.label }}</label>
+        <legend class="sub">{{ form.quantity_min.label }}</legend>
+        {{ form.quantity_min }}
+      </fieldset>
+    </div>
+
+    <div class="filter-actions">
+      <a href="{% url 'cards:search' %}{% if scope == 'collection' %}?scope=collection{% endif %}" class="btn btn-ghost">Limpar</a>
+      <button type="submit" class="btn btn-primary">Aplicar filtros</button>
+    </div>
+  </details>
+
+  {% if searched %}
+  <div class="results-bar">
+    <div class="results-count">
+      {% if error %}
+        <span class="error">{{ error }}</span>
+      {% else %}
+        <strong>{{ total|intcomma }}</strong> carta{{ total|pluralize }}
+        {% if scope == "collection" %}
+          {% if totals.copies and totals.copies != total %}<span class="muted">({{ totals.copies|intcomma }} cópias)</span>{% endif %}
+          {% if totals.value_brl %}<span class="muted">· valor total</span> <strong class="price">{{ totals.value_brl|brl }}</strong>{% endif %}
+        {% else %}
+          <span class="muted">no Scryfall</span>
+          {% if owned_on_page %}<span class="owned-count">· {{ owned_on_page }} nesta página na sua coleção</span>{% endif %}
+        {% endif %}
+      {% endif %}
+      {% for warning in warnings %}<div class="warn small">{{ warning }}</div>{% endfor %}
+    </div>
+
+    <div class="results-controls">
+      <label>{{ form.sort }}</label>
+      <label>{{ form.order }}</label>
+      <div class="toggle">
+        <a href="{% view_url querystring 'grid' %}" class="{% if view_mode == 'grid' %}active{% endif %}" title="Imagens">▦</a>
+        <a href="{% view_url querystring 'list' %}" class="{% if view_mode == 'list' %}active{% endif %}" title="Lista">☰</a>
+      </div>
+      <input type="hidden" name="view" value="{{ view_mode }}">
+    </div>
+  </div>
+  {% endif %}
+</form>
+
+{% if not searched %}
+  <section class="welcome">
+    <h1>Encontre qualquer carta de Magic</h1>
+    <p class="muted">Busca em toda a base do Scryfall, com preço em reais da LigaMagic. As cartas que você já tem aparecem marcadas.</p>
+    <div class="welcome-stats">
+      <a class="stat" href="?scope=collection"><span>Sua coleção</span><strong>{{ collection_size|intcomma }} cartas</strong></a>
+      <div class="stat"><span>Valor (LigaMagic)</span><strong class="price">{{ collection_value|default:0|brl }}</strong></div>
+      <div class="stat"><span>Dólar hoje</span><strong>{{ rate|brl }}</strong></div>
+    </div>
+  </section>
+{% elif scope == "collection" and collection_size == 0 %}
+  <div class="empty">
+    <h2>Sua coleção está vazia</h2>
+    <p>Importe os CSVs exportados da LigaMagic, ou busque em <a href="{% url 'cards:search' %}">todas as cartas</a> e adicione pelo detalhe.</p>
+    <a class="btn btn-primary" href="{% url 'cards:manage' %}">Importar coleção</a>
+  </div>
+{% elif not items %}
+  {% if not error %}
+    <div class="empty">
+      <h2>Nenhuma carta encontrada</h2>
+      <p>Tente afrouxar os filtros.</p>
+    </div>
+  {% endif %}
+{% elif view_mode == "list" %}
+  <div class="table-wrap">
+    <table class="card-table">
+      <thead>
+        <tr><th>Nome</th><th>Custo</th><th>Tipo</th><th>Edição</th><th>Rar.</th><th class="num">Tenho</th><th class="num">R$</th><th class="num">US$</th></tr>
+      </thead>
+      <tbody>
+        {% for card in items %}
+          <tr class="{% if card.owned %}is-owned{% endif %}">
+            <td>
+              <a href="{{ card.detail_url }}" class="hover-preview">
+                {{ card.name }}
+                {% if card.image_url %}<img class="preview" src="{{ card.image_url }}" alt="" loading="lazy">{% endif %}
+              </a>
+            </td>
+            <td class="nowrap">{{ card.mana_cost|mana }}</td>
+            <td class="muted">{{ card.type_line|default:"—" }}</td>
+            <td><span class="set-code">{{ card.set_code|upper }}</span></td>
+            <td><span class="rarity-dot rarity-{{ card.rarity }}" title="{{ card.rarity|rarity_label }}"></span></td>
+            <td class="num">{% if card.owned %}<a class="owned-tag" href="{{ card.owned_url }}">✓ {{ card.owned }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td class="num">{% include "cards/_brl.html" %}</td>
+            <td class="num muted">{{ card.price_usd|usd }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  {% include "cards/_card_grid.html" %}
+{% endif %}
+
+{% include "cards/_pagination.html" %}
+
+<span hidden id="prices-api" data-url="{% url 'cards:prices' %}"></span>
+{% endblock %}

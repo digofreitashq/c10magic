@@ -1,0 +1,13 @@
+{% load magic %}{% if page and page.paginator.num_pages > 1 %}
+  <nav class="pagination">
+    {% if page.has_previous %}
+      <a href="{% page_url querystring 1 %}">«</a>
+      <a href="{% page_url querystring page.previous_page_number %}">‹ Anterior</a>
+    {% endif %}
+    <span>Página {{ page.number }} de {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}
+      <a href="{% page_url querystring page.next_page_number %}">Próxima ›</a>
+      <a href="{% page_url querystring page.paginator.num_pages %}">»</a>
+    {% endif %}
+  </nav>
+{% endif %}

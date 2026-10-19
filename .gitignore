@@ -1,0 +1,40 @@
+# Ambiente virtual
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Bancos de dados locais
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3-journal
+
+# Executável gerado (build_exe.bat)
+build/
+dist/
+
+# Segredos e configuração local
+.django_secret_key
+.env
+.env.*
+
+# Arquivos gerados pelo Django
+staticfiles/
+media/
+
+# CSVs da coleção (exportados da LigaMagic)
+csv_import/*
+!csv_import/.gitkeep
+
+# Editores e sistema
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

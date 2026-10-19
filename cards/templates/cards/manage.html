@@ -1,0 +1,136 @@
+{% extends "cards/base.html" %}
+{% load magic humanize %}
+
+{% block title %}Coleção · C10 Magic{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Coleção</h1>
+
+<section class="stats">
+  <div class="stat"><span>Cartas únicas</span><strong>{{ stats.cards|default:0|intcomma }}</strong></div>
+  <div class="stat"><span>Cópias</span><strong>{{ stats.copies|default:0|intcomma }}</strong></div>
+  <div class="stat"><span>Valor (LigaMagic)</span><strong class="price">{{ stats.value_brl|default:0|brl }}</strong></div>
+  <div class="stat"><span>Valor (Scryfall)</span><strong>{{ stats.value_usd|default:0|usd }}</strong></div>
+</section>
+
+<div class="manage-grid">
+
+  <section class="panel" id="updater-panel" data-url="{% url 'cards:status' %}">
+    <h2>Atualização de dados</h2>
+    <p class="muted">
+      Cada carta é carregada do Scryfall e da LigaMagic na primeira vez e só volta a ser
+      consultada depois de {{ refresh_days }} dias.
+    </p>
+
+    <div class="progress"><div class="progress-bar" id="progress-bar" style="width: 0%"></div></div>
+    <p id="updater-text">
+      {% if updater.running %}
+        Atualizando {{ updater.done }} de {{ updater.total }}…
+      {% elif updater.pending %}
+        {{ updater.pending }} carta{{ updater.pending|pluralize }} aguardando atualização.
+      {% else %}
+        Tudo em dia.
+      {% endif %}
+    </p>
+
+    <form method="post" class="inline">
+      {% csrf_token %}
+      {% if updater.running %}
+        <button class="btn btn-ghost" name="action" value="stop">Parar</button>
+      {% else %}
+        <button class="btn btn-primary" name="action" value="update" {% if not updater.pending %}disabled{% endif %}>Atualizar cartas pendentes</button>
+      {% endif %}
+    </form>
+
+    {% if pending_preview and not updater.running %}
+      <details class="small-list">
+        <summary>Próximas da fila</summary>
+        <ul class="plain">{% for c in pending_preview %}<li>{{ c.name }}</li>{% endfor %}</ul>
+      </details>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h2>Importar CSV da LigaMagic</h2>
+    <form method="post" enctype="multipart/form-data" class="dropzone" id="dropzone">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="import">
+      <label for="{{ import_form.files.id_for_label }}">
+        <strong>Arraste os arquivos aqui</strong>
+        <span>ou clique para escolher (vários de uma vez)</span>
+        <span class="file-names" id="file-names"></span>
+      </label>
+      {{ import_form.files }}
+      {{ import_form.files.errors }}
+      <button class="btn btn-primary" type="submit">Importar</button>
+    </form>
+    <p class="muted small">Linhas repetidas somam a quantidade. A edição e o número de coleção do CSV são usados para achar a imagem certa.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Adicionar carta</h2>
+    <form method="post" class="stack">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add">
+      <label>{{ add_form.name.label }} {{ add_form.name }}</label>
+      <datalist id="card-suggestions" data-url="{% url 'cards:autocomplete' %}"></datalist>
+      <label>{{ add_form.quantity.label }} {{ add_form.quantity }}</label>
+      {{ add_form.non_field_errors }}
+      <button class="btn btn-primary" type="submit">Adicionar</button>
+    </form>
+  </section>
+
+  {% if most_valuable %}
+    <section class="panel span-2">
+      <h2>Mais valiosas</h2>
+      <div class="mini-grid">
+        {% for card in most_valuable %}
+          <a href="{% url 'cards:detail' card.pk %}" class="mini-card">
+            {% if card.image_url %}<img src="{{ card.image_url }}" alt="{{ card.name }}" loading="lazy">{% endif %}
+            <span>{{ card.name }}</span>
+            <strong class="price">{{ card.price_brl|brl }}</strong>
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if stats.cards %}
+    <section class="panel span-2 danger-zone">
+      <div>
+        <h2>Limpar coleção</h2>
+        <p class="muted small">
+          Remove as {{ stats.cards|intcomma }} cartas da coleção ({{ stats.copies|default:0|intcomma }} cópias). Não dá para desfazer.
+          Os dados do Scryfall, os preços já buscados e as tags continuam guardados, então reimportar depois é rápido.
+        </p>
+      </div>
+      <form method="post" class="danger-form" id="clear-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="clear">
+        <input type="text" name="confirm" id="clear-confirm" placeholder="Digite LIMPAR" autocomplete="off" aria-label="Digite LIMPAR para confirmar">
+        <button class="btn btn-danger" type="submit" id="clear-button" disabled>Limpar coleção</button>
+      </form>
+    </section>
+  {% endif %}
+
+  {% if errors %}
+    <section class="panel span-2">
+      <h2>Problemas ao carregar</h2>
+      <div class="table-wrap">
+        <table class="card-table">
+          <thead><tr><th>Carta</th><th>Scryfall</th><th>LigaMagic</th></tr></thead>
+          <tbody>
+            {% for card in errors %}
+              <tr>
+                <td><a href="{% url 'cards:detail' card.pk %}">{{ card.name }}</a></td>
+                <td class="muted">{{ card.scryfall_error|default:"OK" }}</td>
+                <td class="muted">{{ card.ligamagic_error|default:"OK" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
+</div>
+{% endblock %}

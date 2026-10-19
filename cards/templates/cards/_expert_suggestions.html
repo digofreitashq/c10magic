@@ -1,0 +1,91 @@
+{% load magic %}<header class="suggest-head">
+  {% if s.item.result.image_url %}<img src="{{ s.item.result.image_url }}" alt="{{ s.item.card.name }}">{% endif %}
+  <div>
+    <span class="muted small">Substituir</span>
+    <h2>{{ s.item.card.name }}</h2>
+    <div class="small">
+      {{ s.item.unit_price|brl }}{% if s.item.estimated %} <span class="muted">(estimado)</span>{% endif %}
+    </div>
+    <div class="small muted">
+      Cabem na identidade {{ view.identity|color_pips }} e são legais em Commander.
+      {% if s.budget_max is not None %}O orçamento permite até {{ s.budget_max|brl }} trocando esta carta.{% endif %}
+      {% if s.hidden_by_budget %}{{ s.hidden_by_budget }} acima do limite ocultada{{ s.hidden_by_budget|pluralize }}.{% endif %}
+    </div>
+  </div>
+</header>
+
+<form class="suggest-filter" id="suggest-filter" onsubmit="return false">
+  <input type="hidden" name="tags_set" value="1">
+
+  <div class="suggest-tags">
+    <span class="filter-label">
+      Tags obrigatórias
+      <small>{% if s.selected_tags %}a sugestão precisa ter todas as marcadas{% else %}nenhuma marcada: qualquer função{% endif %}</small>
+    </span>
+    {% if s.tags %}
+      <div class="tag-picker">
+        {% for tag in s.tags %}
+          <label class="chip{% if tag.label in s.roles %} is-role{% endif %}" title="{% if tag.label in s.roles %}Papel no deck · {% endif %}{{ tag.count|default:'?' }} cartas com otag:{{ tag.label }}">
+            <input type="checkbox" name="tags" value="{{ tag.label }}" {% if tag.label in s.selected_tags %}checked{% endif %}>
+            <span>{{ tag.text }}{% if tag.count %} <small>{{ tag.count }}</small>{% endif %}</span>
+          </label>
+        {% endfor %}
+      </div>
+    {% else %}
+      <span class="muted small">Esta carta não tem tags de função no Scryfall Tagger.</span>
+    {% endif %}
+  </div>
+
+  <div class="suggest-tags">
+    <span class="filter-label">
+      Tipos
+      <small>{% if s.selected_types %}qualquer um dos marcados{% else %}nenhum marcado: qualquer tipo{% endif %}</small>
+    </span>
+    <div class="chips">
+      {% for value, label in card_types %}
+        <label class="chip{% if value == s.item.group %} is-reference{% endif %}" {% if value == s.item.group %}title="Tipo da carta que vai sair"{% endif %}>
+          <input type="checkbox" name="types" value="{{ value }}" {% if value in s.selected_types %}checked{% endif %}>
+          <span>{{ label }}</span>
+        </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <label>
+    Preço máximo (R$)
+    <input type="number" name="max_price" min="0" step="0.5" placeholder="Sem limite"
+           value="{% if s.user_max is not None %}{{ s.user_max|stringformat:'s' }}{% endif %}">
+  </label>
+  <div class="presets">
+    <button type="button" data-max-price="1">R$ 1</button>
+    <button type="button" data-max-price="5">R$ 5</button>
+    <button type="button" data-max-price="20">R$ 20</button>
+    <button type="button" data-max-price="">Sem limite</button>
+  </div>
+  {% if s.max_price is not None %}
+    <span class="small">Mostrando até <strong>{{ s.max_price|brl }}</strong>{% if s.budget_max is not None and s.user_max is not None and s.budget_max < s.user_max %} (limitado pelo orçamento){% endif %}</span>
+  {% endif %}
+</form>
+
+{% if s.pool_items %}
+  <h3>Do pool do EDHREC</h3>
+  <div class="suggest-grid">
+    {% for sug in s.pool_items %}{% include "cards/_suggestion.html" %}{% endfor %}
+  </div>
+{% endif %}
+
+<h3>Outras opções <small class="muted">mais populares no Scryfall</small></h3>
+{% if s.error %}
+  <p class="error">{{ s.error }}</p>
+{% elif s.other_items %}
+  <div class="suggest-grid">
+    {% for sug in s.other_items %}{% include "cards/_suggestion.html" %}{% endfor %}
+  </div>
+{% else %}
+  <p class="muted">Nenhuma outra carta encontrada.</p>
+{% endif %}
+
+<footer class="suggest-foot">
+  <code class="muted small">{{ s.query }}</code>
+  {% if s.item.card.scryfall_id %}<a class="btn btn-ghost" href="{% url 'cards:similar' s.item.card.scryfall_id %}">Ajustar em Similares ↗</a>{% endif %}
+</footer>

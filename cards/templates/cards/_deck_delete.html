@@ -1,0 +1,10 @@
+<form method="post" action="{% url 'cards:expert_delete' deck.pk %}" class="inline deck-delete"
+      onsubmit="return confirm('Excluir o deck {{ deck.name|default:'sem comandante'|escapejs }}? Isso não pode ser desfeito.')">
+  {% csrf_token %}
+  {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+  {% if full %}
+    <button class="btn btn-ghost btn-danger-ghost" type="submit">✕ Excluir deck</button>
+  {% else %}
+    <button class="icon-btn" type="submit" title="Excluir deck" aria-label="Excluir o deck {{ deck.name }}">✕</button>
+  {% endif %}
+</form>

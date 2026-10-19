@@ -1,0 +1,387 @@
+{% extends "cards/base.html" %}
+{% load magic humanize %}
+
+{% block title %}{{ deck.name|default:"Deck" }} · Decks · C10 Magic{% endblock %}
+
+{% block body_class %}{% if pool %}has-pool-sidebar{% endif %}{% endblock %}
+
+{% block content %}
+{% if pool %}
+  <aside class="pool-sidebar" aria-label="Pool de sugestões do EDHREC">
+    {% if pool.pool.found %}
+      <div class="pool-head">
+        <h2>Pool de sugestões</h2>
+        <a class="small" href="{{ pool.pool.url }}" target="_blank" rel="noopener">EDHREC ↗</a>
+      </div>
+
+      {% if pool.type_comparison %}
+        <div class="type-compare" title="Cartas no deck / média dos decks no EDHREC">
+          {% for label, mine, average in pool.type_comparison %}
+            <span class="{% if mine < average|add:-3 %}low{% elif mine > average|add:3 %}high{% endif %}">{{ label }} <strong>{{ mine }}</strong><small>/{{ average }}</small></span>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="pool-tabs" role="tablist">
+        {% for tag, label, items in pool.categories %}
+          <button type="button" role="tab" class="pool-tab {% if forloop.first %}active{% endif %}" data-pool-tab="{{ tag }}">{{ label }} <small>{{ items|length }}</small></button>
+        {% endfor %}
+      </div>
+
+      {% for tag, label, items in pool.categories %}
+        <div class="pool-row" data-pool-panel="{{ tag }}" {% if not forloop.first %}hidden{% endif %}>
+          {% for p in items %}
+            <a class="pool-card {% if p.result.owned %}is-owned{% endif %}" href="{{ p.result.detail_url }}" title="{{ p.result.name }}">
+              <div class="card-image">
+                {% if p.result.image_url %}<img src="{{ p.result.image_url }}" alt="{{ p.result.name }}" loading="lazy">{% endif %}
+                {% if p.result.owned %}<span class="owned-badge">✓</span>{% endif %}
+              </div>
+              <div class="pool-meta">
+                {% with card=p.result %}{% include "cards/_brl.html" %}{% endwith %}
+                <span class="stats">
+                  {% if p.synergy_percent is not None %}<span title="Sinergia com o comandante">{% if p.synergy_percent >= 0 %}+{% endif %}{{ p.synergy_percent }}%</span>{% endif %}
+                  {% if p.inclusion_percent is not None %}<span class="muted" title="Decks deste comandante que usam a carta">{{ p.inclusion_percent }}% decks</span>{% endif %}
+                </span>
+              </div>
+            </a>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    {% else %}
+      <h2>Pool de sugestões</h2>
+      <p class="muted small">O EDHREC não tem uma página para este comandante, então não há pool de sugestões.</p>
+    {% endif %}
+  </aside>
+{% endif %}
+
+<div class="deck-topline">
+  <a class="back" href="{% url 'cards:decks' %}">‹ Decks</a>
+  <div class="deck-toolbar">
+    {% if not empty %}
+      <button type="button" class="btn btn-ghost" data-toggle="replace-list">Substituir lista</button>
+    {% endif %}
+    {% include "cards/_deck_menu.html" with next="" full=True %}
+  </div>
+</div>
+
+{% if not empty %}
+  <section class="panel replace-list" id="replace-list" hidden>
+    <h2>Substituir a lista de cartas</h2>
+    <p class="muted small">Cole a lista nova (LigaMagic, Moxfield ou Archidekt). As cartas atuais serão substituídas.</p>
+    <form method="post" action="{% url 'cards:deck_import' deck.pk %}" class="stack deck-import">
+      {% csrf_token %}
+      {{ import_form.decklist }}
+      <button class="btn btn-primary" type="submit" onclick="return confirm('Substituir todas as cartas do deck?')">Substituir</button>
+    </form>
+  </section>
+{% endif %}
+
+<header class="deck-head">
+  {% if cover %}<img class="deck-cover" src="{{ cover }}" alt="Capa do deck">{% endif %}
+  <div class="deck-title">
+    <h1 class="deck-name">{{ deck.name|default:"Deck sem nome" }}</h1>
+    {% if view.commanders %}
+      <div class="deck-commanders">
+        <span class="muted">Comandante:</span>
+        {% for item in view.commanders %}
+          {% if item.card.scryfall_id %}
+            <a class="commander-link" href="{% url 'cards:scryfall_detail' item.card.scryfall_id %}" title="Abrir a página do comandante">
+              {{ item.card.name }}
+              {% if item.result.image_url %}<img class="commander-preview" src="{{ item.result.image_url }}" alt="{{ item.card.name }}">{% endif %}
+            </a>
+          {% else %}
+            <span title="Não encontrado no Scryfall">{{ item.card.input_name }}</span>
+          {% endif %}
+          {% if not forloop.last %} <span class="muted">+</span> {% endif %}
+        {% endfor %}
+      </div>
+      <div class="deck-meta">
+        <span>{{ view.identity|color_pips }}</span>
+        <span class="{% if view.card_count != 100 %}warn{% else %}muted{% endif %}">{{ view.card_count }} cartas</span>
+        {% if pool.pool.found %}<a href="{{ pool.pool.url }}" target="_blank" rel="noopener">EDHREC ↗</a>{% if pool.pool.num_decks %}<span class="muted">{{ pool.pool.num_decks|intcomma }} decks</span>{% endif %}{% endif %}
+      </div>
+    {% elif not empty %}
+      <div class="deck-commanders muted">Sem comandante definido</div>
+    {% endif %}
+    <div class="deck-dates small muted">Criado {{ deck.created_at|date:"d/m/Y" }} · atualizado {{ deck.updated_at|date:"d/m/Y H:i" }}</div>
+  </div>
+
+  <div class="budget-box" id="budget-box"
+       data-budget="{% if deck.budget is not None %}{{ deck.budget|stringformat:'s' }}{% endif %}">
+    <div class="budget-total">
+      <span class="label">Valor total</span>
+      <strong id="deck-total" class="price">{{ view.total|brl }}</strong>
+      <small class="muted" id="deck-estimated">{% if view.estimated_count %}{{ view.estimated_count }} carta{{ view.estimated_count|pluralize }} com preço estimado pelo dólar{% endif %}</small>
+    </div>
+    <div class="small budget-basis">
+      <span class="muted">Para o orçamento (sem o comandante):</span>
+      <strong id="deck-budget-total">{{ view.budget_total|brl }}</strong>
+    </div>
+    {% if deck.budget is not None %}
+      <div class="progress"><div class="progress-bar {% if view.remaining < 0 %}over{% endif %}" id="budget-bar" style="width: {{ view.budget_percent|default:0 }}%"></div></div>
+      <div class="small" id="budget-remaining">
+        {% if view.remaining < 0 %}<span class="error">{{ view.remaining|brl_abs }} acima do orçamento</span>{% else %}<span class="muted">Restam</span> {{ view.remaining|brl }}{% endif %}
+      </div>
+    {% endif %}
+    <form method="post" action="{% url 'cards:expert_budget' deck.pk %}" class="budget-form">
+      {% csrf_token %}
+      <label>{{ budget_form.budget.label }} {{ budget_form.budget }}</label>
+      <button class="btn btn-ghost" type="submit">Salvar</button>
+    </form>
+  </div>
+</header>
+
+{% if deck.build_report %}
+  {% with r=deck.build_report %}
+    <details class="panel build-report">
+      <summary>
+        <strong>Montado pelo Construtor</strong>
+        <span class="muted small">
+          {{ r.slots }} mágicas · média {{ r.average|brl }} por carta{% if r.lands_spent and r.lands_spent != '0.00' %} · terrenos {{ r.lands_spent|brl }}{% endif %}
+          {% if r.budget %}· orçamento {{ r.budget|brl }}{% endif %}
+        </span>
+        {% if r.budget and not r.fits %}<span class="error small">não coube no orçamento</span>{% endif %}
+      </summary>
+
+      {% if r.profile_source %}
+        <p class="small muted">
+          Proporções tiradas de: <strong>{{ r.profile_source }}</strong>{% if r.profile_sample %} ({{ r.profile_sample }} mágicas){% endif %}.
+          Os números depois da barra são o alvo, escalado para as {{ r.slots }} vagas deste deck.
+        </p>
+      {% endif %}
+
+      {% if r.rules or r.tribes or r.relentless %}
+        <ul class="report-rules">
+          {% for rule in r.rules %}<li>{{ rule }}</li>{% endfor %}
+          {% if r.tribes %}
+            <li>Deck tribal ({{ r.tribes|join:", " }}): {{ r.tribe_members }} de {{ r.creatures }} criaturas são da tribo</li>
+          {% endif %}
+          {% for card in r.relentless %}
+            {% if card.copies > 1 %}<li>{{ card.copies }} cópias de {{ card.name }} (o deck pode ter quantas quiser)</li>{% endif %}
+          {% endfor %}
+        </ul>
+      {% endif %}
+
+      {% if radar %}
+        <section class="radar-editor" aria-labelledby="radar-title">
+          <h3 id="radar-title">Ajustar proporções</h3>
+          <p class="small muted">
+            Arraste os pontos de <strong>Seu alvo</strong> ou digite os valores e gere o deck de novo.
+            Sinergia, remoção, compra, board wipe e ramp dividem as {{ radar.slots }} vagas de mágicas
+            (se a soma for diferente, o construtor ajusta proporcionalmente); criaturas é a quantidade de criaturas entre elas.
+          </p>
+
+          <div class="radar-layout">
+            <figure class="radar-figure">
+              <svg id="radar-chart" viewBox="0 0 520 380" role="img"
+                   aria-label="Gráfico de radar com as proporções do deck: deck atual, perfil e seu alvo"></svg>
+              <figcaption class="radar-legend">
+                <span><i class="swatch target"></i>Seu alvo</span>
+                <span><i class="swatch profile"></i>Perfil (EDHREC)</span>
+                <span><i class="swatch current"></i>Deck atual</span>
+                <small class="radar-scale-note">Escala comprimida: os anéis mostram os valores reais, e valores pequenos ganham mais espaço.</small>
+              </figcaption>
+              <div class="radar-tooltip" id="radar-tooltip" hidden></div>
+            </figure>
+
+            <form method="post" action="{% url 'cards:builder_rebuild' deck.pk %}" class="radar-form" id="radar-form"
+                  onsubmit="return confirm(event.submitter &amp;&amp; event.submitter.name === 'reset' ? 'Voltar às proporções do perfil e gerar o deck de novo?' : 'Gerar o deck de novo com estas proporções? As trocas feitas à mão serão perdidas.')">
+              {% csrf_token %}
+              <table class="radar-table">
+                <thead>
+                  <tr><th scope="col">Eixo</th><th scope="col" class="num">Atual</th><th scope="col" class="num">Perfil</th><th scope="col" class="num">Seu alvo</th></tr>
+                </thead>
+                <tbody>
+                  {% for axis in radar.axes %}
+                    <tr>
+                      <th scope="row">{{ axis.label }}</th>
+                      <td class="num" data-current="{{ axis.key }}"></td>
+                      <td class="num" data-profile="{{ axis.key }}"></td>
+                      <td class="num"><input type="number" min="0" max="{{ radar.slots }}" step="1" name="target_{{ axis.key }}" data-axis="{{ axis.key }}" aria-label="Seu alvo: {{ axis.label }}"></td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              <p class="small" id="radar-total"></p>
+              <div class="radar-actions">
+                <button class="btn btn-primary" type="submit" data-building>Gerar de novo</button>
+                <button class="btn btn-ghost" type="submit" name="reset" value="1" formnovalidate data-building>Restaurar perfil</button>
+              </div>
+              {% if radar.custom %}<p class="small muted">Este deck usa proporções ajustadas por você.</p>{% endif %}
+            </form>
+          </div>
+          {{ radar|json_script:"radar-data" }}
+        </section>
+      {% endif %}
+
+      <div class="report-grid">
+        <div>
+          <h3>Esqueleto <small class="muted">por prioridade</small></h3>
+          <ul class="report-list">
+            {% if r.synergy_slots is not None %}<li><span>Sinergia</span><strong>{{ r.synergy_slots }}</strong><small class="muted">vagas livres</small></li>{% endif %}
+            {% for role in r.roles %}
+              <li><span>{{ role.label }}</span><strong class="{% if role.count < role.target %}warn{% endif %}">{{ role.count }}</strong><small class="muted">/ {{ role.target }}</small></li>
+            {% endfor %}
+            <li><span>Criaturas</span><strong>{{ r.creatures }}</strong>{% if r.creature_target %}<small class="muted">/ {{ r.creature_target }}</small>{% endif %}</li>
+          </ul>
+        </div>
+        {% if r.curve %}
+          <div>
+            <h3>Curva de mana</h3>
+            <table class="curve-table">
+              <tr><th>Custo</th>{% for step in r.curve %}<td>{{ step.cmc }}</td>{% endfor %}</tr>
+              <tr><th>Deck</th>{% for step in r.curve %}<td><strong>{{ step.count }}</strong></td>{% endfor %}</tr>
+              {% if r.curve.0.target is not None %}
+                <tr class="muted"><th>Alvo</th>{% for step in r.curve %}<td>{{ step.target }}</td>{% endfor %}</tr>
+              {% endif %}
+            </table>
+          </div>
+        {% endif %}
+        {% if r.themes %}
+          <div>
+            <h3>Temas dos decks deste comandante</h3>
+            <ul class="report-list">
+              {% for theme in r.themes %}
+                <li title="Em {{ theme.share }}% do deck médio; {{ theme.lift }}× mais comum que no Magic em geral">
+                  <span><a href="{% url 'cards:search' %}?q=otag%3A{{ theme.tag|urlencode }}" target="_blank">{{ theme.tag }}</a></span>
+                  <strong>{{ theme.count }}</strong><small class="muted">cartas</small>
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+        <div>
+          <h3>Origem</h3>
+          <ul class="report-list">
+            <li><span>Recomendadas pelo EDHREC</span><strong>{{ r.from_edhrec }}</strong></li>
+            <li><span>Populares no Scryfall</span><strong>{{ r.from_scryfall }}</strong></li>
+            {% if r.multi_function is not None %}<li title="Papéis, temas do deck e o que o comandante favorece"><span>Com mais de uma função</span><strong>{{ r.multi_function }}</strong></li>{% endif %}
+            <li><span>Candidatas avaliadas</span><strong>{{ r.candidates }}</strong></li>
+          </ul>
+        </div>
+        <div>
+          <h3>Terrenos</h3>
+          <ul class="report-list">
+            {% for land in r.lands %}<li><span><img class="mana" src="https://svgs.scryfall.io/card-symbols/{{ land.color }}.svg" alt=""> {{ land.name }}</span><strong>{{ land.count }}</strong></li>{% endfor %}
+            {% for land in r.fixing_lands %}<li title="Gera duas ou mais cores (ou busca um básico); comprado com a sobra do orçamento"><span>{{ land.name }}</span><strong>1</strong><small class="muted">{{ land.price|brl }}</small></li>{% endfor %}
+          </ul>
+          {% if r.fixing_lands %}<p class="small muted">{{ r.fixing_lands|length }} terreno{{ r.fixing_lands|length|pluralize }} de duas cores no lugar de básicos ({{ r.lands_spent|brl }}).</p>{% endif %}
+        </div>
+      </div>
+
+      {% if r.estimated %}
+        <p class="small muted">
+          {{ r.estimated }} carta{{ r.estimated|pluralize }} entr{{ r.estimated|pluralize:"ou,aram" }} com preço estimado pelo dólar; os preços reais da LigaMagic estão sendo buscados.
+          Se o total passar do orçamento, reconstrua o deck: os preços já buscados passam a valer.
+        </p>
+      {% endif %}
+      {% for note in r.notes %}<p class="small warn">{{ note }}</p>{% endfor %}
+
+      <form method="post" action="{% url 'cards:builder_rebuild' deck.pk %}" class="inline" onsubmit="return confirm('Reconstruir o deck? As trocas feitas à mão serão perdidas.')">
+        {% csrf_token %}
+        <button class="btn btn-ghost" type="submit" data-building>↻ Reconstruir com os preços atuais</button>
+      </form>
+    </details>
+  {% endwith %}
+{% endif %}
+
+{% if empty %}
+  <section class="panel empty-deck">
+    <h2>Cartas do deck</h2>
+    <p class="muted">Cole a lista de cartas. Formatos aceitos: LigaMagic (<code>1 Fuga de Mana</code>), Moxfield / MTG Arena (<code>1 Sol Ring (CMM) 410</code>) e Archidekt (<code>1x Vren, the Relentless (blb) [Commander{top}]</code>). Linhas sob <code>Comandante</code> ou com a categoria <code>Commander</code> marcam o comandante.</p>
+    <form method="post" action="{% url 'cards:deck_import' deck.pk %}" class="stack deck-import">
+      {% csrf_token %}
+      {{ import_form.decklist }}
+      <button class="btn btn-primary" type="submit">Importar lista</button>
+    </form>
+  </section>
+{% endif %}
+
+{% if choose_commander %}
+  <section class="panel choose-commander">
+    <h2>Quem é o comandante?</h2>
+    <p class="muted">Não consegui identificar o comandante na lista. Escolha um (ou dois, para partner / background).</p>
+    <form method="post" action="{% url 'cards:expert_commander' deck.pk %}">
+      {% csrf_token %}
+      {% if candidates %}
+        <div class="commander-options">
+          {% for item in candidates %}
+            <label class="commander-option">
+              <input type="checkbox" name="commander" value="{{ item.card.pk }}">
+              {% if item.result.image_url %}<img src="{{ item.result.image_url }}" alt="{{ item.card.name }}">{% endif %}
+              <span>{{ item.card.name }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="warn">Nenhuma criatura lendária na lista.</p>
+      {% endif %}
+      {% if others %}
+        <details class="small-list">
+          <summary>Escolher outra carta do deck</summary>
+          <div class="other-options">
+            {% for item in others %}<label class="check"><input type="checkbox" name="commander" value="{{ item.card.pk }}"> {{ item.card.name }}</label>{% endfor %}
+          </div>
+        </details>
+      {% endif %}
+      <button class="btn btn-primary" type="submit">Confirmar comandante</button>
+    </form>
+  </section>
+{% endif %}
+
+{% if view.unresolved %}
+  <div class="message message-warning">
+    Não encontrei {{ view.unresolved|length }} carta{{ view.unresolved|pluralize }}:
+    {% for card in view.unresolved %}<code>{{ card.input_line|default:card.input_name }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}
+  </div>
+{% endif %}
+
+{% for key, label, items, count in view.groups %}
+  <section class="deck-group">
+    <h2>{{ label }} <small class="muted">{{ count }}</small></h2>
+    <div class="card-grid deck-grid">
+      {% for item in items %}
+        <div class="card-tile deck-card {% if item.result.owned %}is-owned{% endif %}" id="card-{{ item.card.pk }}"
+             data-name="{{ item.result.name }}" data-qty="{{ item.card.quantity }}"
+             data-commander="{% if item.card.is_commander %}1{% endif %}"
+             data-unit="{{ item.unit_price|stringformat:'s' }}" data-estimated="{% if item.estimated %}1{% endif %}">
+          <div class="card-image">
+            {% if item.result.image_url %}<img src="{{ item.result.image_url }}" alt="{{ item.card.name }}" loading="lazy">{% endif %}
+            {% if item.card.quantity > 1 %}<span class="qty">×{{ item.card.quantity }}</span>{% endif %}
+            {% if item.result.owned %}<span class="owned-badge" title="Na sua coleção">✓</span>{% endif %}
+            <div class="card-actions">
+              {% if not item.card.is_commander and not item.is_basic %}
+                <button type="button" class="mini-btn" data-suggest="{% url 'cards:expert_suggestions' deck.pk item.card.pk %}" title="Sugestões para substituir esta carta">≈</button>
+              {% endif %}
+              <a class="mini-btn" href="{{ item.result.detail_url }}" title="Abrir a página da carta">↗</a>
+              {% if item.card.scryfall_id %}
+                <form method="post" action="{% url 'cards:deck_cover' deck.pk %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="scryfall_id" value="{{ item.card.scryfall_id }}">
+                  <button type="submit" class="mini-btn" title="Usar a arte desta carta como capa do deck">▣</button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+          <div class="card-meta">
+            <div class="card-name" title="{{ item.card.name }}">{{ item.card.name }}</div>
+            {% if item.card.category and deck.build_report and not item.card.is_commander %}<span class="role-label role-{{ item.card.category|slugify }}">{{ item.card.category }}</span>{% endif %}
+            <div class="card-sub">
+              <span class="rarity-dot rarity-{{ item.result.rarity }}"></span>
+              <span class="set-code">{{ item.result.set_code|upper }}</span>
+              {% with card=item.result %}{% include "cards/_brl.html" %}{% endwith %}
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+{% endfor %}
+
+<dialog class="modal" id="suggest-modal">
+  <div class="modal-body" id="suggest-body"></div>
+  <button type="button" class="modal-close" id="suggest-close" title="Fechar">✕</button>
+</dialog>
+
+<span hidden id="prices-api" data-url="{% url 'cards:prices' %}"></span>
+{% endblock %}

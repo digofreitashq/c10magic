@@ -1,0 +1,60 @@
+{% extends "cards/base.html" %}
+{% load magic %}
+
+{% block title %}Decks · C10 Magic{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Decks</h1>
+
+{% url 'cards:decks' as here %}
+<div class="deck-grid-list">
+  <div class="deck-tile deck-new">
+    <details class="new-deck">
+      <summary aria-label="Novo deck">
+        <span class="plus">+</span>
+        <span>Novo deck</span>
+      </summary>
+      <div class="new-deck-options">
+        <a class="btn btn-primary" href="{% url 'cards:builder' %}">Gerar deck</a>
+        <small class="muted">Escolha o comandante e o orçamento; o site monta o deck.</small>
+        <form method="post" action="{% url 'cards:deck_create' %}">
+          {% csrf_token %}
+          <button class="btn btn-ghost" type="submit">Cadastrar deck</button>
+        </form>
+        <small class="muted">Crie um deck e cole a lista de cartas.</small>
+      </div>
+    </details>
+  </div>
+
+  {% for s in summaries %}
+    <article class="deck-tile">
+      <a class="deck-tile-link" href="{% url 'cards:expert_deck' s.deck.pk %}">
+        {% if s.cover %}
+          <img class="deck-art" src="{{ s.cover }}" alt="" loading="lazy">
+        {% else %}
+          <div class="deck-art placeholder"></div>
+        {% endif %}
+        <div class="deck-info">
+          <h2>{{ s.deck.name|default:"Deck sem nome" }}</h2>
+          <div class="deck-line">
+            {% if s.identity %}<span class="deck-pips">{{ s.identity|color_pips }}</span>{% elif s.commanders %}<span class="deck-pips">{{ ""|color_pips }}</span>{% endif %}
+            <span>{{ s.card_count }} carta{{ s.card_count|pluralize }}</span>
+            {% if s.deck.budget is not None %}<span>orçamento {{ s.deck.budget|brl }}</span>{% endif %}
+            {% if s.built %}<span class="tag-built">gerado</span>{% endif %}
+          </div>
+          <div class="deck-dates">
+            Criado {{ s.deck.created_at|date:"d/m/Y" }} · atualizado {{ s.deck.updated_at|date:"d/m/Y H:i" }}
+          </div>
+        </div>
+      </a>
+      <div class="deck-tile-menu">
+        {% include "cards/_deck_menu.html" with deck=s.deck next=here %}
+      </div>
+    </article>
+  {% endfor %}
+</div>
+
+{% if not summaries %}
+  <p class="muted">Nenhum deck ainda. Clique em <strong>+</strong> para gerar ou cadastrar o primeiro.</p>
+{% endif %}
+{% endblock %}

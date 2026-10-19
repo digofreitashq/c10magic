@@ -1,0 +1,26 @@
+{% load magic %}<div class="suggestion {% if sug.result.owned %}is-owned{% endif %}">
+  <a class="card-image" href="{{ sug.result.detail_url }}" target="_blank" title="Abrir {{ sug.result.name }}">
+    {% if sug.result.image_url %}<img src="{{ sug.result.image_url }}" alt="{{ sug.result.name }}" loading="lazy">{% endif %}
+    {% if sug.result.owned %}<span class="owned-badge" title="Na sua coleção">✓ {% if sug.result.owned > 1 %}×{{ sug.result.owned }}{% else %}Tenho{% endif %}</span>{% endif %}
+  </a>
+  <div class="suggestion-meta">
+    <div class="card-name" title="{{ sug.result.name }}">{{ sug.result.name }}</div>
+    <div class="card-sub">
+      {% with card=sug.result %}{% include "cards/_brl.html" %}{% endwith %}
+      <span class="diff {% if sug.difference > 0 %}up{% elif sug.difference < 0 %}down{% endif %}" title="Diferença para a carta atual">
+        {% if sug.difference > 0 %}+{{ sug.difference|brl }}{% elif sug.difference < 0 %}−{{ sug.difference|brl_abs }}{% else %}={% endif %}
+      </span>
+    </div>
+    {% if sug.synergy_percent is not None or sug.inclusion_percent is not None %}
+      <div class="small muted">
+        {% if sug.synergy_percent is not None %}sinergia {% if sug.synergy_percent >= 0 %}+{% endif %}{{ sug.synergy_percent }}%{% endif %}
+        {% if sug.inclusion_percent is not None %}· {{ sug.inclusion_percent }}% dos decks{% endif %}
+      </div>
+    {% endif %}
+    <form method="post" action="{% url 'cards:expert_swap' deck.pk s.item.card.pk %}">
+      {% csrf_token %}
+      <input type="hidden" name="scryfall_id" value="{{ sug.scryfall_id }}">
+      <button class="btn btn-primary btn-small" type="submit">Trocar</button>
+    </form>
+  </div>
+</div>
