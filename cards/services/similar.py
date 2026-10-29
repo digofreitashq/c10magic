@@ -14,7 +14,7 @@ from django.db.models import F, Q
 
 from cards.models import COLOR_ORDER, Card, TagIndex
 from cards.search import color_q, parse_query
-from cards.services.exchange import usd_to_brl
+from cards.services.exchange import estimate_brl
 from cards.services.prices import fetch_price, known_prices
 from cards.services.scryfall import card_fields
 from cards.services.tags import tag_counts, tags_for
@@ -157,7 +157,7 @@ def build_reference(data: dict, rate) -> Reference:
         type_line=fields["type_line"],
         cmc=fields["cmc"],
         price_brl=quote.price if quote else None,
-        brl_estimate=usd_to_brl(price_usd, rate) if price_usd is not None else None,
+        brl_estimate=estimate_brl(price_usd, rate) if price_usd is not None else None,
         tags=tags,
         tags_ready=tag_info["oracle_ready"],
     )

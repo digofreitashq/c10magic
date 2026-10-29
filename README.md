@@ -31,23 +31,35 @@ python -m venv venv
 
 Acesse http://127.0.0.1:8000.
 
-### Executável (sem Python)
+### Versão portátil (sem Python instalado)
 
-Para usar o C10 Magic como um programa único, que não precisa de Python
-instalado, gere o `.exe` (uma vez, em uma máquina com o projeto):
+Para usar o C10 Magic em um computador sem Python, gere o pacote portátil:
 
 ```powershell
-.\build_exe.bat          # gera dist\C10Magic.exe (cerca de 25 MB)
+.\build_portable.bat
 ```
 
-Copie `C10Magic.exe` para qualquer pasta e dê dois cliques: ele cria o banco,
-sobe o servidor e abre o navegador (usa a porta 8000 ou a primeira livre
-depois dela). Feche a janela do programa para encerrar. Os dados ficam na
-pasta **`dados\`**, criada ao lado do `.exe`: para levar sua coleção e seus
-decks, copie `c10magic.sqlite3` para dentro dela (com o programa fechado).
-Na primeira abertura de uma carta, as tags do Scryfall são baixadas (cerca de
-um minuto). Alguns antivírus desconfiam de executáveis do PyInstaller; se
-isso acontecer, rode pelo Python normalmente.
+Ele cria `dist\C10Magic-portatil\` e `dist\C10Magic-portatil.zip` (cerca de 22 MB). É o
+**Python oficial embutido** (python.org) com as bibliotecas e o projeto como
+arquivos comuns, sem executável novo. Extraia o zip numa pasta (não rode de
+dentro dele) e dê dois cliques em **`C10 Magic.bat`**: o programa sobe e abre
+o navegador (porta 8000 ou a primeira livre depois dela). Feche a janela
+preta para encerrar. `Criar atalho na area de trabalho.bat` cria um atalho com
+o ícone do C10 Magic.
+
+Os dados ficam em `dados\`. Para levar sua coleção e seus decks, copie
+`c10magic.sqlite3` para dentro dela (com o programa fechado). Na primeira
+abertura de uma carta, as tags do Scryfall são baixadas (cerca de um minuto).
+
+### Executável único (`C10Magic.exe`)
+
+`.\build_exe.bat` gera `dist\C10Magic\C10Magic.exe` com o PyInstaller. Funciona, mas
+**antivírus desconfiam de executáveis novos e sem assinatura**: o Avast mostra
+o alerta `IDP.Generic` e executa o programa em modo isolado ("sandbox"), o que
+pode impedir o navegador de acessar o servidor local. Só um certificado de
+assinatura de código elimina isso. Prefira a versão portátil acima, ou envie o
+`.exe` como falso positivo ao fabricante e adicione a pasta às exceções do
+antivírus.
 
 ### Configuração
 
@@ -108,32 +120,47 @@ Em **Decks → + → Gerar deck**, escolha o comandante (e um segundo, para part
 background / friends forever) e, se quiser, um orçamento em R$. O deck sai
 com o(s) comandante(s), **40 terrenos básicos** e 59 mágicas (58 com dupla):
 
-1. **Perfil do comandante** (`cards/services/profile.py`), tirado do deck
-   médio do EDHREC (ou, sem ele, das cartas mais jogadas com o comandante):
-   proporção de ramp, compra, remoção e board wipe (pelas tags de função das
-   cartas), curva de mana, quantidade de criaturas e **temas** (tags muito
-   mais comuns nesses decks do que no Magic em geral). As funções do próprio
-   comandante também contam (`COMMANDER_RULES`): um comandante que reduz o
-   custo de criaturas valoriza criaturas caras.
-2. **Candidatas:** o pool do EDHREC + as cartas mais populares do Scryfall
-   para cada papel, tema e faixa de custo importante, dentro da identidade de
-   cor, legais em Commander, sem terrenos.
-3. **Nota:** % dos decks do comandante que usam a carta + sinergia (EDHREC);
-   cartas só do Scryfall têm nota menor, pela popularidade geral. Bônus, na
-   ordem de prioridade **sinergia > remoção > compra > board wipe > ramp**:
-   temas do deck e o que o comandante favorece valem mais que qualquer papel;
-   depois o melhor papel da carta; e cada função a mais (papel, tema) soma.
-   Ramp tem a menor prioridade em tudo: quando as cotas não cabem, é o que
-   mais perde; ao economizar, é piorado primeiro; a sobra do orçamento vai
-   antes para sinergia; e carta só de ramp entra apenas pela cota de ramp.
-4. **Esqueleto:** as cotas de papel do perfil; o resto por nota, seguindo a
-   curva de mana e as criaturas dos decks reais.
-5. **Orçamento** (só as mágicas; comandante e básicos não contam): troca a
-   carta que mais economiza perdendo menos nota, mantendo papel, "é
-   criatura" e faixa de custo, até caber. Depois aproxima a curva da dos
-   decks reais e, com sobra, troca por cartas melhores da mesma faixa.
-   Nenhuma carta sozinha passa de 30% do orçamento.
-6. **Terrenos:** em decks de duas ou mais cores, até 15% do orçamento é
+A ideia é ser um **espelho do deck médio do comandante no EDHREC**, dentro do
+orçamento:
+
+1. **Perfil** (`cards/services/profile.py`): quantas cartas de remoção,
+   compra, board wipe e ramp (pelas tags de função) e quantas criaturas o deck
+   médio tem; o resto das vagas é sinergia. Com orçamento (até R$ 500), usa os
+   **decks baratos** do EDHREC (`commanders/<nome>/budget` e o deck médio
+   deles). Sem deck médio, as cartas mais jogadas com o comandante.
+2. **Candidatas:** as cartas da página do comandante no EDHREC + buscas no
+   Scryfall por cartas da mesma função (papéis, temas do deck médio, tribo,
+   equipamentos…), dentro da identidade de cor, legais em Commander, sem
+   terrenos. Nenhuma carta sozinha passa de 30% do orçamento.
+3. **Ordem:** a popularidade **com este comandante** (% dos decks dele que
+   usam a carta + a sinergia do EDHREC). A popularidade geral no Magic não
+   conta; cartas que não estão na página do comandante começam com nota 0.
+   Desempates pequenos: temas do deck médio, tags escolhidas por você, tribo.
+4. **Seleção:** as cotas de cada papel com as melhores cartas de cada um (uma
+   carta com dois papéis fica no mais importante: remoção > compra > board
+   wipe > ramp), depois as vagas de sinergia, mantendo as criaturas do deck
+   médio (±3). Cartas "relentless" com sinergia (Tempest Hawk, Relentless
+   Rats) entram com 8 cópias.
+5. **Orçamento** (só as mágicas; comandante e básicos não contam): troca cada
+   carta por uma mais barata **da mesma função e parecida** (mesmo papel,
+   tribo, tipo, tags e cores; `similarity`), sempre a troca que mais economiza
+   perdendo menos. Se não couber, as cotas são liberadas do ramp para a
+   remoção. Com sobra, troca por cartas melhores da mesma função.
+6. **Estratégias do comandante:**
+   - **Tribal** (tag `typal-X` do comandante ou do deck médio, ou o tipo de
+     criatura que você escolher): troca cartas de fora da tribo por criaturas
+     da tribo que fazem a mesma função, primeiro as não-criaturas, mesmo com
+     nota um pouco menor (`TRIBE_SWAP_MARGIN`); as criaturas podem passar das
+     do deck médio em até 6.
+   - **Voltron** (Voltron ou Equipment entre os dois temas principais do
+     comandante no EDHREC): equipamentos e cartas que dão proteção
+     (hexproof, indestrutível, proteção, ward) valem mais.
+   - **Orçamento de até R$ 10** (`LOW_BUDGET_LIMIT`): sem ramp, a não ser que
+     o comandante tenha sinergia com **terrenos** (landfall… o ramp vira só
+     mágicas que põem terrenos em jogo ou deixam jogar mais de um terreno no
+     turno, sem pedras de mana), com **artefatos** (ramp com pedras de mana)
+     ou custe 6 ou mais de mana.
+7. **Terrenos:** em decks de duas ou mais cores, até 15% do orçamento é
    reservado para terrenos que geram duas ou mais cores do comandante ou que
    buscam um básico (Terramorphic Expanse, Evolving Wilds, taplands, as que dão
    1 de vida, Command Tower…), no lugar de básicos: até 10 terrenos em duas
@@ -142,18 +169,23 @@ com o(s) comandante(s), **40 terrenos básicos** e 59 mágicas (58 com dupla):
    não for usado volta para as mágicas. O resto são básicos, divididos pelos
    símbolos de mana das cartas (o comandante pesa 3×).
 
-**Orçamento de até R$ 10** (`LOW_BUDGET_LIMIT`): o deck não leva pedras de
-mana. Se o comandante não tem sinergia com terrenos, também não leva ramp: a
-cota vai a zero e as vagas viram sinergia (cartas que fazem ramp e outra coisa
-ainda entram pela outra função). Comandantes com sinergia de terrenos
-(`landfall`, `lands-matter`, terreno extra, terrenos no cemitério… ver
-`LAND_SYNERGY_TAGS`) mantêm o ramp. Com média abaixo de R$ 0,40 por carta, o
-construtor também busca as cartas mais baratas de cada papel. Se mesmo
-trocando o deck não couber, as cotas são liberadas da menor prioridade para a
-maior (ramp primeiro).
+**Tags e tipos para valorizar** (opcional, antes de gerar): o formulário mostra
+as tags de função do comandante e permite acrescentar qualquer outra tag
+existente e um tipo de criatura, com autocompletar. Cartas com essas tags
+ganham um desempate na ordem (`TAG_BONUS`); o botão **criatura** faz a tag só
+contar em criaturas. Para trocá-las, abra o relatório do deck ("Montado pelo
+Construtor"), mude as tags e/ou as proporções em **Ajustar tags e proporções**
+e clique em **Gerar de novo**.
+
+**Preço estimado:** carta sem preço da LigaMagic no banco entra com uma
+estimativa a partir do dólar do Scryfall, **calibrada pela LigaMagic**
+(`cards/services/exchange.py`, `estimate_brl`): por faixa de preço, quanto as
+cartas que já têm os dois preços custam de fato na LigaMagic (as baratas
+custam cerca de 25% a 35% de dólar × cotação). A calibração é refeita uma
+vez por dia; vale para o construtor, a busca e o valor dos decks.
 
 O deck abre no editor com um relatório da montagem. Preços que ainda
-não estavam no banco entram como estimativa pelo dólar e são buscados na
+não estavam no banco entram como estimativa e são buscados na
 LigaMagic em seguida; o botão **Reconstruir** monta de novo com os preços já
 buscados. As regras ficam em `cards/services/builder.py` (`ROLES`,
 `MAX_SHARE_OF_BUDGET`).

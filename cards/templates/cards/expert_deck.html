@@ -133,7 +133,7 @@
 
 {% if deck.build_report %}
   {% with r=deck.build_report %}
-    <details class="panel build-report">
+    <details class="panel build-report"{% if open_report %} open{% endif %}>
       <summary>
         <strong>Montado pelo Construtor</strong>
         <span class="muted small">
@@ -150,11 +150,17 @@
         </p>
       {% endif %}
 
-      {% if r.rules or r.tribes or r.relentless %}
+      {% if r.rules or r.tribes or r.relentless or r.wanted %}
         <ul class="report-rules">
           {% for rule in r.rules %}<li>{{ rule }}</li>{% endfor %}
+          {% for w in r.wanted %}
+            <li>Tag valorizada <a href="{% url 'cards:search' %}?q=otag%3A{{ w.tag|urlencode }}" target="_blank">{{ w.tag }}</a>: {{ w.in_deck }} carta{{ w.in_deck|pluralize }} no deck, de {{ w.candidates }} candidata{{ w.candidates|pluralize }}</li>
+          {% endfor %}
           {% if r.tribes %}
             <li>Deck tribal ({{ r.tribes|join:", " }}): {{ r.tribe_members }} de {{ r.creatures }} criaturas são da tribo</li>
+          {% endif %}
+          {% if r.voltron %}
+            <li>{{ r.voltron_pieces }} equipamento{{ r.voltron_pieces|pluralize }} ou carta{{ r.voltron_pieces|pluralize }} de proteção no deck</li>
           {% endif %}
           {% for card in r.relentless %}
             {% if card.copies > 1 %}<li>{{ card.copies }} cópias de {{ card.name }} (o deck pode ter quantas quiser)</li>{% endif %}
@@ -164,7 +170,7 @@
 
       {% if radar %}
         <section class="radar-editor" aria-labelledby="radar-title">
-          <h3 id="radar-title">Ajustar proporções</h3>
+          <h3 id="radar-title">Ajustar tags e proporções</h3>
           <p class="small muted">
             Arraste os pontos de <strong>Seu alvo</strong> ou digite os valores e gere o deck de novo.
             Sinergia, remoção, compra, board wipe e ramp dividem as {{ radar.slots }} vagas de mágicas
@@ -185,8 +191,10 @@
             </figure>
 
             <form method="post" action="{% url 'cards:builder_rebuild' deck.pk %}" class="radar-form" id="radar-form"
-                  onsubmit="return confirm(event.submitter &amp;&amp; event.submitter.name === 'reset' ? 'Voltar às proporções do perfil e gerar o deck de novo?' : 'Gerar o deck de novo com estas proporções? As trocas feitas à mão serão perdidas.')">
+                  onsubmit="return confirm(event.submitter &amp;&amp; event.submitter.name === 'reset' ? 'Voltar às proporções do perfil e gerar o deck de novo? As tags escolhidas continuam.' : 'Gerar o deck de novo com estas tags e proporções? As trocas feitas à mão serão perdidas.')">
               {% csrf_token %}
+              <input type="hidden" name="open_report" value="1">
+              {% include "cards/_wanted_tags.html" with value=wanted_value commanders=wanted_commanders preselect="0" %}
               <table class="radar-table">
                 <thead>
                   <tr><th scope="col">Eixo</th><th scope="col" class="num">Atual</th><th scope="col" class="num">Perfil</th><th scope="col" class="num">Seu alvo</th></tr>

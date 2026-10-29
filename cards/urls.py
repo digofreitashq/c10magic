@@ -33,4 +33,7 @@ urlpatterns = [
     path("api/status/", views.update_status, name="status"),
     path("api/precos/", views.prices, name="prices"),
     path("api/autocomplete/", views.autocomplete, name="autocomplete"),
+    path("api/comandante-tags/", views.commander_tags, name="commander_tags"),
+    path("api/tags/", views.tags_autocomplete, name="tags_autocomplete"),
+    path("api/tipos-criatura/", views.creature_types_autocomplete, name="creature_types_autocomplete"),
 ]

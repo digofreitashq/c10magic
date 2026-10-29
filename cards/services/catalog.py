@@ -15,7 +15,7 @@ from django.utils import timezone
 from django.utils.functional import cached_property
 
 from cards.models import CachedCard, Card
-from cards.services.exchange import usd_to_brl
+from cards.services.exchange import estimate_brl
 from cards.services.prices import Quote, known_prices, name_keys
 from cards.services.scryfall import SCRYFALL_PAGE_SIZE, ScryfallClient, card_fields
 
@@ -251,7 +251,7 @@ class Collection:
 
 
 def _brl_fields(quote, price_usd, rate):
-    estimate = usd_to_brl(price_usd, rate) if price_usd is not None else None
+    estimate = estimate_brl(price_usd, rate) if price_usd is not None else None
 
     if quote is None:
         return {"brl_status": "pending", "brl_estimate": estimate}

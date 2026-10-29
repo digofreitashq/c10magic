@@ -1,0 +1,34 @@
+# UTF-8
+#
+# Metadados do executável (aparecem em Propriedades > Detalhes).
+# Executáveis sem esses dados são tratados com mais desconfiança por antivírus.
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(1, 0, 0, 0),
+    prodvers=(1, 0, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable(
+        '041604B0',
+        [
+          StringStruct('CompanyName', 'C10 Magic'),
+          StringStruct('FileDescription', 'C10 Magic - busca de cartas, decks e coleção de Magic: The Gathering'),
+          StringStruct('FileVersion', '1.0.0.0'),
+          StringStruct('InternalName', 'C10Magic'),
+          StringStruct('OriginalFilename', 'C10Magic.exe'),
+          StringStruct('ProductName', 'C10 Magic'),
+          StringStruct('ProductVersion', '1.0.0.0'),
+          StringStruct('LegalCopyright', 'Uso pessoal. Dados e imagens do Scryfall; preços da LigaMagic.')
+        ]
+      )
+    ]),
+    VarFileInfo([VarStruct('Translation', [1046, 1200])])
+  ]
+)

@@ -284,6 +284,14 @@ class ImporterTests(TestCase):
         self.assertEqual(card.hint_set_code, "LTR")
 
 
+def neutral_estimates():
+    """Estimativa em R$ = dólar × cotação, sem a calibração pela LigaMagic."""
+
+    from cards.services.exchange import ESTIMATE_BANDS, FACTORS_CACHE_KEY
+
+    cache.set(FACTORS_CACHE_KEY, tuple(Decimal(1) for _ in ESTIMATE_BANDS), 3600)
+
+
 class OfflineMixin:
     """Sem rede nos testes: cotação fixa e fila de preços simulada."""
 
@@ -466,6 +474,7 @@ class ScryfallResultsTests(TestCase):
         self.assertEqual(items["Brainstorm"].owned, 0)
 
     def test_brl_from_collection_cache_or_estimate(self):
+        neutral_estimates()
         make("Counterspell", price_brl=Decimal("3.00"))
         BrlPrice.objects.create(name="Opt", name_normalized="opt", price_brl=Decimal("0.25"),
                                 updated_at=timezone.now())
@@ -562,7 +571,7 @@ class ScryfallViewTests(OfflineMixin, TestCase):
 class TagTests(OfflineMixin, TestCase):
 
     ORACLE = [
-        {"label": "removal", "oracle_ids": ["o-bolt", "o-doom"]},
+        {"label": "removal", "description": "Removes a permanent.", "oracle_ids": ["o-bolt", "o-doom"]},
         {"label": "burn", "oracle_ids": ["o-bolt"]},
         {"label": "ramp", "oracle_ids": ["o-elves"]},
     ]
@@ -1480,13 +1489,13 @@ def candidate(name, score, price, roles=(), creature=False, source="edhrec", cmc
     )
 
 
-def profile(roles=None, creatures=None, curve=None, themes=(), rules=()):
+def profile(roles=None, creatures=None, curve=None, themes=()):
     from cards.services.profile import ROLES, Profile
 
     return Profile(
         source="teste", sample_size=0,
         role_targets=roles if roles is not None else {key: quota for key, _, _, quota in ROLES},
-        creature_target=creatures, curve_targets=curve or {}, themes=list(themes), rules=list(rules),
+        creature_target=creatures, curve_targets=curve or {}, themes=list(themes),
     )
 
 
@@ -1504,54 +1513,44 @@ class BuilderAlgorithmTests(TestCase):
         self.assertEqual(sum(c.assigned == "ramp" for c in picked), 6)
         self.assertEqual(len({c.oracle_id for c in picked}), 59)
 
-    def test_select_keeps_creatures_near_target(self):
+    def test_select_mirrors_creature_count(self):
         from cards.services.builder import CREATURE_TOLERANCE, select
 
+        # Criaturas com nota maior: não passam do deck médio (+ tolerância)
         cards = [candidate(f"creature{i}", 0.9, 1, creature=True) for i in range(60)]
         cards += [candidate(f"spell{i}", 0.5, 1) for i in range(60)]
-
         picked = select(cards, 59, profile(roles={}, creatures=20))
-
         self.assertEqual(sum(c.is_creature for c in picked), 20 + CREATURE_TOLERANCE)
 
-    def test_select_follows_mana_curve(self):
-        from cards.services.builder import CURVE_TOLERANCE, select
+        # Mágicas com nota maior: as criaturas do deck médio entram mesmo assim
+        cards = [candidate(f"creature{i}", 0.2, 1, creature=True) for i in range(60)]
+        cards += [candidate(f"spell{i}", 0.9, 1) for i in range(60)]
+        picked = select(cards, 59, profile(roles={}, creatures=30))
+        self.assertEqual(sum(c.is_creature for c in picked), 30 - CREATURE_TOLERANCE)
 
-        # As de custo 2 têm nota maior, mas o deck típico tem 10 cartas de custo 7+
-        cards = [candidate(f"two{i}", 0.9, 1, cmc=2) for i in range(80)]
-        cards += [candidate(f"big{i}", 0.3, 1, cmc=8) for i in range(30)]
-        curve = {1: 0, 2: 49, 3: 0, 4: 0, 5: 0, 6: 0, 7: 10}
+    def test_score_tiebreakers_and_functions(self):
+        from cards.services.builder import TAG_BONUS, THEME_BONUS, VOLTRON_BONUS, apply_bonuses
 
-        picked = select(cards, 59, profile(roles={}, curve=curve))
+        p = profile(themes=[{"tag": "sac-outlet", "share": 0.3, "lift": 5}])
 
-        big = sum(c.bucket == 7 for c in picked)
-        self.assertGreaterEqual(big, 10 - CURVE_TOLERANCE)
-        self.assertLessEqual(big, 10 + CURVE_TOLERANCE)
-
-    def test_bonuses_follow_priority_and_multiple_functions(self):
-        from cards.services.builder import apply_bonuses
-
-        def scored(roles=(), tags=()):
-            c = candidate("x", 0.1, 1, roles)
+        def scored(roles=(), tags=(), **flags):
+            c = candidate("x", 0.4, 1, roles)
             c.tags = frozenset(tags)
-            apply_bonuses(c, {"sac-outlet", "tokens"}, [])
+            for key, value in flags.items():
+                setattr(c, key, value)
+            apply_bonuses(c, p)
             return c
 
-        removal, draw, sweeper, ramp = (scored([r]) for r in ("removal", "draw", "sweeper", "ramp"))
-        self.assertGreater(removal.score, draw.score)
-        self.assertGreater(draw.score, sweeper.score)
-        self.assertGreater(sweeper.score, ramp.score)
+        plain = scored()
+        self.assertAlmostEqual(plain.score, 0.4)          # a nota é a popularidade com o comandante
+        self.assertAlmostEqual(scored(tags=["sac-outlet"]).score, 0.4 + THEME_BONUS)
+        self.assertAlmostEqual(scored(wanted_hits=1).score, 0.4 + TAG_BONUS)
+        self.assertAlmostEqual(scored(voltron_piece=True).score, 0.4 + VOLTRON_BONUS)
+        self.assertGreater(scored(tribe_member=True).score, plain.score)
 
-        # Sinergia (tema do deck) vale mais que qualquer papel sozinho
-        self.assertGreater(scored(tags=["sac-outlet"]).score, removal.score)
-
-        # Várias funções: remoção + compra + tema > só remoção
-        multi = scored(["removal", "draw"], ["tokens"])
-        self.assertEqual(multi.functions, 3)
-        self.assertGreater(multi.score, removal.score + 0.09)
-
-        # Ramp + remoção conta o bônus de remoção (o melhor), não a soma
-        self.assertAlmostEqual(scored(["ramp", "removal"]).score, removal.score + 0.05)
+        # Papéis não mudam a nota (a cota é que garante cada papel), mas contam como função
+        self.assertAlmostEqual(scored(["removal"]).score, 0.4)
+        self.assertEqual(scored(["removal", "draw"], ["sac-outlet"]).functions, 3)
 
     def test_select_assigns_most_important_role(self):
         from cards.services.builder import select
@@ -1597,11 +1596,9 @@ class BuilderAlgorithmTests(TestCase):
         cards = [candidate(f"ramp{i}", 0.9, 1, ["ramp"]) for i in range(10)]
         cards += [candidate(f"filler{i}", 0.2, 1) for i in range(20)]
         # Ramp que também remove: pode entrar como sinergia
-        multi = candidate("ramp-and-removal", 0.8, 1, ["ramp", "removal"])
-        multi.functions = 2
-        cards.append(multi)
+        cards.append(candidate("ramp-and-removal", 0.8, 1, ["ramp", "removal"]))
         for c in cards:
-            c.functions = max(c.functions, len(c.roles))
+            c.functions = len(c.roles)
 
         picked = select(cards, 15, profile(roles={"ramp": 3}))
 
@@ -1667,21 +1664,6 @@ class BuilderAlgorithmTests(TestCase):
         self.assertIn(p2.role_targets["removal"], (29, 30))
         self.assertEqual(sum(p2.role_targets.values()), p2.role_targets["removal"])
 
-    def test_rebalance_curve(self):
-        from cards.services.builder import rebalance_curve
-
-        picked = [candidate(f"three{i}", 0.5, 1, cmc=3) for i in range(10)]
-        options = [candidate(f"one{i}", 0.3, 1, cmc=1) for i in range(10)]
-        options.append(candidate("one-expensive", 0.9, 50, cmc=1))
-        curve = {1: 5, 2: 0, 3: 5, 4: 0, 5: 0, 6: 0, 7: 0}
-
-        rebalance_curve(picked, picked + options, profile(roles={}, curve=curve), Decimal("10"))
-
-        counts = {b: sum(c.bucket == b for c in picked) for b in (1, 3)}
-        self.assertEqual(counts, {1: 4, 3: 6})   # para dentro da tolerância (±1)
-        self.assertNotIn("one-expensive", [c.name for c in picked])  # orçamento
-        self.assertLessEqual(sum(c.price for c in picked), Decimal("10"))
-
     def test_failed_scryfall_query_is_skipped(self):
         from cards.services import builder
 
@@ -1714,11 +1696,10 @@ class BuilderAlgorithmTests(TestCase):
         # Perde mais nota, mas mantém a curva
         self.assertEqual(picked[0].name, "cheap-big")
 
-    def test_profile_curve_and_commander_rule(self):
+    def test_profile_without_average_deck(self):
         from cards.services.edhrec import Pool
         from cards.services.profile import bucket_of, build_profile
 
-        TagIndex.objects.create(kind="oracle", target_id="o-rakdos", labels="|cost-reducer-creature|evasion|")
         pool = Pool(found=True, type_distribution={"Land": 35, "Creature": 33, "Instant": 31},
                     mana_curve={"1": 7, "2": 16, "3": 13, "4": 6, "5": 5, "6": 5, "7": 4, "8": 2, "9": 2,
                                 "10": 2, "11": 1, "12": 1})
@@ -1729,17 +1710,17 @@ class BuilderAlgorithmTests(TestCase):
         self.assertEqual(sum(result.curve_targets.values()), 59)
         # 7+ junta 7, 8, 9, 10, 11 e 12: 12 de 64 → ~11 de 59
         self.assertEqual(result.curve_targets[7], 11)
-        # 33 criaturas em 64 mágicas → 30,4 de 59
+        # Sem deck médio: 33 criaturas em 64 mágicas da página → 30,4 de 59
         self.assertEqual(result.creature_target, 30)
-        self.assertEqual(len(result.rules), 1)
-        self.assertGreater(result.high_curve_share, 0.3)
+        self.assertEqual(result.source, "proporções padrão")
         self.assertEqual((bucket_of(0), bucket_of(3.0), bucket_of(12)), (1, 3, 7))
 
-    def test_profile_roles_and_themes_from_average_deck(self):
+    def test_profile_mirrors_average_deck(self):
         from cards.services.edhrec import Pool
         from cards.services.profile import MAX_ROLE_SHARE, build_profile
 
-        sample = [sf_card(f"Avg {i}", f"o-avg-{i}", f"avg-{i}") for i in range(40)]
+        sample = [sf_card(f"Avg {i}", f"o-avg-{i}", f"avg-{i}",
+                          type_line="Creature — Elf" if i < 16 else "Instant") for i in range(40)]
         for i, data in enumerate(sample):
             labels = {"removal"} if i < 8 else {"ramp"} if i < 14 else set()
             if i % 2:
@@ -1757,18 +1738,76 @@ class BuilderAlgorithmTests(TestCase):
 
         self.assertEqual(result.source, "deck médio do EDHREC")
         self.assertEqual(result.role_targets["removal"], round(8 / 40 * 59))
-        # 6/40 de ramp (9), menos 2 porque o deck terá 40 terrenos e não 36
-        self.assertEqual(result.role_targets["ramp"], round(6 / 40 * 59) - 2)
+        self.assertEqual(result.role_targets["ramp"], round(6 / 40 * 59))
         self.assertEqual(result.role_targets["sweeper"], 0)
         self.assertLessEqual(sum(result.role_targets.values()), int(59 * MAX_ROLE_SHARE))
+        # Criaturas: as do deck médio (16 de 40), não a distribuição da página
+        self.assertEqual(result.creature_target, round(16 / 40 * 59))
         # sac-outlet: metade do deck médio e raro no geral → tema; removal: comum demais
         self.assertEqual([t["tag"] for t in result.themes], ["sac-outlet"])
+
+    def test_profile_strategies_from_edhrec_themes_and_tags(self):
+        from cards.services.edhrec import Pool
+        from cards.services.profile import build_profile
+
+        def built(themes, commander_tags=""):
+            TagIndex.objects.filter(target_id="o-c").delete()
+            if commander_tags:
+                TagIndex.objects.create(kind="oracle", target_id="o-c", labels=commander_tags)
+            with mock.patch("cards.services.profile._average_deck_sample", return_value=[]):
+                return build_profile([{"name": "C", "oracle_id": "o-c"}], Pool(found=True, themes=themes), 59)
+
+        # Voltron: um dos dois temas principais
+        self.assertTrue(built([("Voltron", 300), ("Auras", 100)]).voltron)
+        self.assertTrue(built([("Counters", 300), ("Equipment", 200)]).voltron)
+        self.assertFalse(built([("Crime", 14), ("Counters", 9), ("Voltron", 7)]).voltron)
+
+        # Terrenos e artefatos: pelas tags do comandante ou pelos temas
+        self.assertEqual(built([], "|landfall|").land_synergy, ["landfall"])
+        self.assertEqual(built([("Landfall", 50)]).land_synergy, ["landfall"])
+        self.assertEqual(built([], "|artifact-matters|").artifact_synergy, ["artifact-matters"])
+        self.assertEqual(built([("Tokens", 10)]).artifact_synergy, [])
+
+    def test_ramp_policy_for_low_budget(self):
+        from cards.services.builder import ramp_policy
+
+        commander = [{"cmc": 4}]
+
+        p = profile(roles={"ramp": 8, "draw": 9})
+        self.assertIn("sem ramp", ramp_policy(p, commander, Decimal("10")))
+        self.assertTrue(p.skip_ramp)
+        self.assertEqual(p.role_targets["ramp"], 0)
+
+        # Landfall: só ramp de terreno (sem pedras de mana)
+        p = profile(roles={"ramp": 8})
+        p.land_synergy = ["landfall"]
+        self.assertIn("mais de um terreno", ramp_policy(p, commander, Decimal("10")))
+        self.assertFalse(p.skip_ramp)
+        self.assertTrue(p.skip_mana_rocks)
+        self.assertEqual(p.role_targets["ramp"], 8)
+
+        # Artefatos: ramp com pedras de mana
+        p = profile(roles={"ramp": 8})
+        p.artifact_synergy = ["artifact-matters"]
+        self.assertIn("pedras de mana", ramp_policy(p, commander, Decimal("8")))
+        self.assertFalse(p.skip_ramp or p.skip_mana_rocks)
+
+        # Comandante caro: ramp vale a pena
+        p = profile(roles={"ramp": 8})
+        self.assertIn("custa 7", ramp_policy(p, [{"cmc": 7}], Decimal("10")))
+        self.assertFalse(p.skip_ramp)
+
+        # Acima de R$ 10 (ou sem orçamento): o ramp do deck médio
+        for budget in (Decimal("10.01"), None):
+            p = profile(roles={"ramp": 8})
+            self.assertEqual(ramp_policy(p, commander, budget), "")
+            self.assertEqual(p.role_targets["ramp"], 8)
 
     def test_tribe_detection(self):
         from cards.services.profile import creature_types, tribes_from_tags
 
         self.assertEqual(tribes_from_tags({"typal-bird", "tribal-bird", "kindred", "typal-creature"}), ["bird"])
-        self.assertEqual(tribes_from_tags({"evasion"}), [])
+        self.assertEqual(tribes_from_tags({"evasion", "typal-equipment"}), [])
         self.assertEqual(creature_types("Legendary Creature — Bird Scout"), {"bird", "scout"})
         self.assertEqual(creature_types("Kindred Instant — Bird"), set())
         self.assertEqual(creature_types("Artifact Creature — Rat // Instant"), {"rat"})
@@ -1784,27 +1823,82 @@ class BuilderAlgorithmTests(TestCase):
         self.assertTrue(_mentions_tribe(elf_lord, ["elf"]))
         self.assertFalse(_mentions_tribe({"oracle_text": "Birdie"}, ["bird"]))
 
-    def test_tribe_bonus_and_preserving_swaps(self):
-        from cards.services.builder import _compatible, apply_bonuses
+    def test_tribe_member_only_swaps_for_member(self):
+        from cards.services.builder import _compatible
 
         member = candidate("bird", 0.3, 1, creature=True)
         member.tribe_member = True
-        payoff = candidate("payoff", 0.3, 1)
-        payoff.tribe_payoff = True
         other = candidate("other", 0.3, 1, creature=True)
-        for c in (member, payoff, other):
-            apply_bonuses(c, set(), [])
 
-        self.assertGreater(member.score, payoff.score)
-        self.assertGreater(payoff.score, other.score)
-        # Criatura da tribo só é trocada por outra da tribo
         self.assertFalse(_compatible(member, other, 2))
         self.assertTrue(_compatible(other, member, 2))
 
-    def test_relentless_copies_and_package(self):
+    def test_tribal_swaps_same_function_noncreatures_first(self):
+        from cards.services.builder import TRIBE_SWAP_MARGIN, tribal_swaps
+
+        removal_spell = candidate("removal-spell", 0.5, 1, ["removal"])
+        removal_spell.assigned = "removal"
+        synergy_spell = candidate("synergy-spell", 0.5, 1)
+        other_creature = candidate("human", 0.45, 1, creature=True)
+        picked = [removal_spell, synergy_spell, other_creature]
+
+        def bird(name, score, price, roles=()):
+            c = candidate(name, score, price, roles, creature=True)
+            c.tribe_member = True
+            return c
+
+        bird_removal = bird("bird-removal", 0.4, 1, ["removal"])
+        bird_plain = bird("bird-plain", 0.5 - TRIBE_SWAP_MARGIN + 0.01, 1)
+        bird_bad = bird("bird-bad", 0.01, 1)
+        bird_pricey = bird("bird-pricey", 0.9, 50)
+        p = profile(roles={})
+        p.tribes = ["bird"]
+
+        swaps = tribal_swaps(picked, picked + [bird_removal, bird_plain, bird_bad, bird_pricey], p, Decimal("3"))
+
+        names = {c.name for c in picked}
+        # A remoção vira uma criatura da tribo que também remove (e segue na cota de remoção)
+        self.assertIn("bird-removal", names)
+        self.assertEqual(bird_removal.assigned, "removal")
+        # A não-criatura de sinergia vira a melhor criatura da tribo (até a margem)
+        self.assertIn("bird-plain", names)
+        self.assertNotIn("synergy-spell", names)
+        # Nota baixa demais ou fora do orçamento: não entram
+        self.assertNotIn("bird-bad", names)
+        self.assertNotIn("bird-pricey", names)
+        self.assertEqual(swaps, 2)
+        self.assertLessEqual(sum(c.price for c in picked), Decimal("3"))
+
+        # Sem tribo: nada muda
+        self.assertEqual(tribal_swaps(picked, picked, profile(), None), 0)
+
+        # Criaturas no teto (deck médio + TRIBE_EXTRA_CREATURES): não-criatura fica
+        from cards.services.builder import TRIBE_EXTRA_CREATURES
+
+        spell = candidate("spell", 0.3, 1)
+        crowd = [candidate(f"cr{i}", 0.9, 1, creature=True) for i in range(TRIBE_EXTRA_CREATURES + 1)]
+        p2 = profile(roles={}, creatures=1)
+        p2.tribes = ["bird"]
+        deck = [spell] + crowd
+        tribal_swaps(deck, deck + [bird("bird-x", 0.9, 1)], p2, None)
+        self.assertIn(spell, deck)
+
+    def test_voltron_pieces_and_queries(self):
+        from cards.services.builder import candidate_queries, is_voltron_piece
+
+        self.assertTrue(is_voltron_piece({"type_line": "Artifact — Equipment"}, set()))
+        self.assertTrue(is_voltron_piece({"type_line": "Instant"}, {"gives-indestructible"}))
+        self.assertFalse(is_voltron_piece({"type_line": "Instant"}, {"removal"}))
+
+        p = profile(creatures=20)
+        self.assertFalse(any("t:equipment" in q for q, _ in candidate_queries("W", None, p)))
+        p.voltron = True
+        self.assertTrue(any("t:equipment" in q for q, _ in candidate_queries("W", None, p)))
+
+    def test_relentless_copies(self):
         from cards.services.builder import RELENTLESS_COPIES, add_relentless_copies, select, use_leftover
 
-        hawk = candidate("hawk", 0.3, "0.1", creature=True)
+        hawk = candidate("hawk", 0.9, "0.1", creature=True)
         hawk.tags = frozenset({"relentless"})
         hawk.tribe_member = True
         lonely = candidate("rats", 0.3, "0.1", creature=True)
@@ -1815,14 +1909,13 @@ class BuilderAlgorithmTests(TestCase):
         self.assertEqual(sum(c.base_oracle == hawk.oracle_id for c in cands), RELENTLESS_COPIES)
         self.assertEqual(sum(c.base_oracle == lonely.oracle_id for c in cands), 1)
 
-        # O pacote entra inteiro, mesmo com a curva cheia na faixa dele
-        picked = select(cands, 20, profile(roles={}, curve={1: 0, 2: 1, 3: 19}))
+        # O pacote entra inteiro, mesmo com o limite de criaturas, e não sai nas trocas
+        picked = select(cands, 20, profile(roles={}, creatures=0))
         copies = [c for c in picked if c.base_oracle == hawk.oracle_id]
         self.assertEqual(len(copies), RELENTLESS_COPIES)
         self.assertTrue(all(c.locked for c in copies))
 
-        # E não sai para "melhorar a nota" com a sobra do orçamento
-        better = [candidate(f"great{i}", 2.0, "0.1", creature=True, cmc=2) for i in range(10)]
+        better = [candidate(f"great{i}", 2.0, "0.1", creature=True) for i in range(10)]
         use_leftover(picked, cands + better, Decimal("100"))
         self.assertEqual(sum(c.base_oracle == hawk.oracle_id for c in picked), RELENTLESS_COPIES)
 
@@ -1838,17 +1931,37 @@ class BuilderAlgorithmTests(TestCase):
 
         self.assertEqual([t["tag"] for t in _themes(sample_tags)], ["edict"])
 
-    def test_theme_and_rule_bonus_in_score(self):
-        from cards.services.builder import COMMANDER_RULES, Candidate
+    def test_fit_budget_prefers_similar_card(self):
+        from cards.services.builder import fit_budget, similarity
 
-        rule = COMMANDER_RULES[0]
-        big = candidate("big", 0.1, 1, creature=True, cmc=8)
-        small = candidate("small", 0.1, 1, creature=True, cmc=3)
+        # Equipamento multicolorido caro: troca por um parecido, mesmo de nota menor
+        out = candidate("pricey-equipment", 0.9, 5)
+        out.data.update(type_line="Artifact — Equipment", colors=["R", "W"])
+        out.tags = frozenset({"synergy-equipment", "gives-haste"})
+        alike = candidate("cheap-equipment", 0.0, 1)
+        alike.data.update(type_line="Artifact — Equipment", colors=["R", "W"])
+        alike.tags = frozenset({"synergy-equipment"})
+        other = candidate("cheap-instant", 0.2, 1)
+        other.data.update(type_line="Instant", colors=["R"])
 
-        self.assertTrue(rule["applies"](big))
-        self.assertFalse(rule["applies"](small))
-        self.assertGreater(rule["bonus"](big), 0.1)
-        self.assertIsInstance(big, Candidate)
+        self.assertGreater(similarity(out, alike), similarity(out, other))
+        self.assertIn("multicolor", out.features)
+
+        picked = [out]
+        self.assertTrue(fit_budget(picked, [out, alike, other], Decimal("2")))
+        self.assertEqual(picked[0].name, "cheap-equipment")
+
+    def test_fit_budget_last_resort_drops_tribe(self):
+        from cards.services.builder import fit_budget
+
+        # Só cabe trocando a criatura da tribo por uma criatura de fora
+        bird = candidate("bird", 0.5, 5, creature=True)
+        bird.tribe_member = True
+        human = candidate("human", 0.4, 1, creature=True)
+
+        picked = [bird]
+        self.assertTrue(fit_budget(picked, [bird, human], Decimal("2")))
+        self.assertEqual(picked[0].name, "human")
 
     def test_fit_budget_swaps_cheapest_loss(self):
         from cards.services.builder import fit_budget
@@ -1906,17 +2019,6 @@ class BuilderAlgorithmTests(TestCase):
         self.assertTrue(usd)
         self.assertTrue(all("usd<=0.60" in q and "id<=ub" in q for q in usd))
         self.assertEqual(len(cheap), len(normal) + len(usd))
-
-    def test_rebalance_never_raises_cost_when_budget_failed(self):
-        from cards.services.builder import rebalance_curve
-
-        picked = [candidate(f"three{i}", 0.5, 1, cmc=3) for i in range(10)]
-        options = [candidate(f"one{i}", 0.9, 5, cmc=1) for i in range(10)]
-        before = sum(c.price for c in picked)
-
-        # Teto = total atual: as opções de custo 1 são mais caras e não entram
-        rebalance_curve(picked, picked + options, profile(roles={}, curve={1: 5, 3: 5}), before)
-        self.assertEqual(sum(c.price for c in picked), before)
 
     def test_release_ramp_quota_when_budget_does_not_fit(self):
         from cards.services.builder import fit_with_release
@@ -2039,12 +2141,15 @@ class BuilderTests(OfflineMixin, TestCase):
         self.addCleanup(edhrec.stop)
         edhrec.start().return_value = mock.Mock(status_code=200, ok=True, json=lambda: page)
 
+        neutral_estimates()
         patcher = mock.patch("cards.services.builder.price_queue")
         self.builder_queue = patcher.start()
         self.addCleanup(patcher.stop)
 
-    def build(self, budget=""):
-        return self.client.post(reverse("cards:builder"), {"commander": "Vren", "budget": budget})
+    def build(self, budget="", priority_tags=""):
+        return self.client.post(reverse("cards:builder"), {
+            "commander": "Vren", "budget": budget, "priority_tags": priority_tags,
+        })
 
     def test_builds_100_cards_without_budget(self):
         response = self.build()
@@ -2164,7 +2269,7 @@ class BuilderTests(OfflineMixin, TestCase):
         roles = {r["label"]: r for r in report["roles"]}
         self.assertEqual((roles["Ramp"]["count"], roles["Ramp"]["target"]), (0, 0))
         self.assertFalse(any(c.category == "Ramp" for c in deck.cards.all()))
-        self.assertIn("sem ramp nem pedras de mana", " ".join(report["notes"]))
+        self.assertIn("sem ramp", " ".join(report["rules"]))
         # Nenhuma busca de ramp no Scryfall
         self.assertFalse(any("otag:mana-rock" in call.args[1] for call in self.search.call_args_list))
         # Cartas de ramp + compra continuam valendo pela compra
@@ -2178,11 +2283,10 @@ class BuilderTests(OfflineMixin, TestCase):
         deck = Deck.objects.get()
         report = deck.build_report
 
-        roles = {r["label"]: r for r in report["roles"]}
-        self.assertGreater(roles["Ramp"]["target"], 0)
-        notes = " ".join(report["notes"])
-        self.assertIn("o ramp de terreno foi mantido", notes)
-        self.assertIn("landfall", notes)
+        rules = " ".join(report["rules"])
+        self.assertIn("mais de um terreno no turno", rules)
+        self.assertIn("landfall", rules)
+        self.assertNotIn("sem ramp", rules)
         self.assertNotIn(rock, {c.name for c in deck.cards.all()})
 
     def tag_dorks_and_land_ramp(self):
@@ -2235,6 +2339,172 @@ class BuilderTests(OfflineMixin, TestCase):
 
         self.assertNotIn("sem ramp", " ".join(report["notes"]))
         self.assertTrue(any("otag:mana-rock" in call.args[1] for call in self.search.call_args_list))
+
+    # ---------------- tags para valorizar
+
+    def add_crime_tag(self, count=20):
+        """Marca `count` das mágicas baratas com a tag synergy-target."""
+
+        for data in self.cheap[40:40 + count]:
+            TagIndex.objects.update_or_create(
+                kind="oracle", target_id=data["oracle_id"], defaults={"labels": "|synergy-target|"})
+        TagStat.objects.update_or_create(kind="oracle", label="synergy-target", defaults={"count": 187})
+
+    def test_wanted_tags_are_used_and_reported(self):
+        self.add_crime_tag(count=20)
+
+        self.build("10")
+        without = Deck.objects.get()
+        crime = {d["name"] for d in self.cheap[40:60]}
+        count_without = sum(c.quantity for c in without.cards.all() if c.name in crime)
+        without.delete()
+
+        self.build("10", priority_tags="synergy-target")
+        deck = Deck.objects.get()
+        report = deck.build_report
+
+        in_deck = sum(c.quantity for c in deck.cards.all() if c.name in crime)
+        self.assertEqual(report["wanted_tags"], ["synergy-target"])
+        self.assertEqual(report["wanted"], [{"tag": "synergy-target", "candidates": 20, "in_deck": in_deck}])
+        self.assertGreater(in_deck, count_without)
+        # Cota: 45% das 59 vagas, limitada pelas 20 candidatas
+        self.assertEqual(in_deck, 20)
+        # As buscas incluem a tag escolhida
+        self.assertTrue(any("otag:synergy-target" in c.args[1] for c in self.search.call_args_list))
+
+        page = self.client.get(reverse("cards:expert_deck", args=[deck.pk]))
+        self.assertContains(page, "Tag valorizada")
+        self.assertContains(page, "20 cartas no deck, de 20 candidatas")
+
+    def test_rebuild_keeps_wanted_tags(self):
+        self.add_crime_tag(count=20)
+        self.build("10", priority_tags="synergy-target")
+        deck = Deck.objects.get()
+
+        self.client.post(reverse("cards:builder_rebuild", args=[deck.pk]))
+
+        deck.refresh_from_db()
+        self.assertEqual(deck.build_report["wanted_tags"], ["synergy-target"])
+        self.assertEqual(deck.build_report["wanted"][0]["in_deck"], 20)
+
+    def test_change_tags_and_rebuild_from_report(self):
+        self.add_crime_tag(count=20)
+        TagStat.objects.update_or_create(kind="oracle", label="landfall", defaults={"count": 297})
+        for data in self.cheap[60:70]:
+            TagIndex.objects.update_or_create(kind="oracle", target_id=data["oracle_id"],
+                                              defaults={"labels": "|landfall|"})
+        crime = {d["name"] for d in self.cheap[40:60]}
+        landfall = {d["name"] for d in self.cheap[60:70]}
+
+        self.build("10", priority_tags="synergy-target")
+        deck = Deck.objects.get()
+        url = reverse("cards:builder_rebuild", args=[deck.pk])
+        self.assertEqual(deck.build_report["wanted_tags"], ["synergy-target"])
+
+        # A página do deck mostra o editor de tags já com as tags do deck
+        page = self.client.get(reverse("cards:expert_deck", args=[deck.pk])).content.decode()
+        self.assertIn('id="wanted-tags"', page)
+        self.assertIn('value="synergy-target"', page)
+        self.assertIn('data-commanders="Vren, the Relentless"', page)
+        self.assertIn('data-preselect="0"', page)           # no relatório não marca sozinho
+        self.assertIn('<details class="panel build-report">', page)   # fechado por padrão
+
+        # Troca as tags e gera de novo (mesmo formulário das proporções)
+        response = self.client.post(url, {"priority_tags": "landfall", "open_report": "1"}, follow=True)
+        deck.refresh_from_db()
+
+        self.assertEqual(deck.build_report["wanted_tags"], ["landfall"])
+        self.assertEqual(deck.build_report["wanted"][0]["tag"], "landfall")
+        names = {c.name for c in deck.cards.all()}
+        self.assertEqual(len(names & landfall), 10)
+        self.assertLess(len(names & crime), 20)      # a tag antiga não vale mais
+        # Relatório aberto depois de gerar por ali, e a mensagem diz o que entrou
+        self.assertContains(response, '<details class="panel build-report" open>')
+        self.assertContains(response, "Tags: landfall: 10 de 10 cartas")
+
+        # Rebuild comum (sem o campo) mantém as tags
+        self.client.post(url)
+        deck.refresh_from_db()
+        self.assertEqual(deck.build_report["wanted_tags"], ["landfall"])
+
+        # Campo vazio = tirou todas as tags
+        self.client.post(url, {"priority_tags": "", "open_report": "1"})
+        deck.refresh_from_db()
+        self.assertEqual(deck.build_report["wanted_tags"], [])
+        self.assertEqual(deck.build_report["wanted"], [])
+
+        # Tags e proporções juntas
+        self.client.post(url, {"priority_tags": "synergy-target,inexistente", "target_synergy": "30",
+                               "target_removal": "10", "target_draw": "10", "target_sweeper": "0",
+                               "target_ramp": "0", "target_creatures": "10", "open_report": "1"})
+        deck.refresh_from_db()
+        self.assertEqual(deck.build_report["wanted_tags"], ["synergy-target"])   # a inexistente cai
+        self.assertEqual(deck.build_report["overrides"]["removal"], 10)
+
+    def test_unknown_wanted_tags_are_ignored(self):
+        from cards.services.builder import MAX_PRIORITY_TAGS, clean_priority_tags
+
+        self.add_crime_tag(count=3)
+        self.assertEqual(clean_priority_tags(["Synergy Target", "synergy-target", "nao-existe", ""]),
+                         ["synergy-target"])
+        self.assertEqual(clean_priority_tags(None), [])
+
+        for i in range(MAX_PRIORITY_TAGS + 3):
+            TagStat.objects.create(kind="oracle", label=f"tag-{i}", count=50)
+        self.assertEqual(len(clean_priority_tags([f"tag-{i}" for i in range(MAX_PRIORITY_TAGS + 3)])),
+                         MAX_PRIORITY_TAGS)
+
+        self.build("10", priority_tags="nao-existe")
+        self.assertEqual(Deck.objects.get().build_report["wanted_tags"], [])
+
+    def test_commander_tag_options_filters_noise_and_suggests_synergy(self):
+        TagIndex.objects.create(kind="oracle", target_id="o-vren",
+                                labels="|synergy-target|counters-matter|naming-scheme|triggered-ability|rare-tag|unheroic|")
+        for label, count in [("synergy-target", 187), ("counters-matter", 1302), ("naming-scheme", 8662),
+                             ("triggered-ability", 15000), ("rare-tag", 2), ("unheroic", 59)]:
+            TagStat.objects.create(kind="oracle", label=label, count=count)
+        SyncState.objects.update_or_create(key="tags:oracle", defaults={"updated_at": timezone.now()})
+
+        response = self.client.get(reverse("cards:commander_tags"), {"name": "Vren"})
+        data = response.json()
+
+        self.assertEqual(data["commanders"], ["Vren, the Relentless"])
+        self.assertTrue(data["ready"])
+        # Sem ruído (nome, habilidade genérica, rara demais); sugeridas primeiro
+        self.assertEqual([t["label"] for t in data["tags"]], ["synergy-target", "counters-matter", "unheroic"])
+        self.assertEqual([t["suggested"] for t in data["tags"]], [True, True, False])
+        self.assertEqual(data["tags"][0], {"label": "synergy-target", "text": "synergy target",
+                                           "count": 187, "suggested": True, "description": ""})
+
+        self.assertEqual(self.client.get(reverse("cards:commander_tags"), {"name": "Zzzzz"}).status_code, 404)
+        self.assertEqual(self.client.get(reverse("cards:commander_tags")).json()["tags"], [])
+
+    def test_tag_autocomplete(self):
+        for label, count in [("synergy-target", 187), ("synergy-token", 239), ("repeatable-synergy", 900),
+                             ("removal", 6000), ("rare", 1)]:
+            TagStat.objects.create(kind="oracle", label=label, count=count)
+
+        def ask(q):
+            return self.client.get(reverse("cards:tags_autocomplete"), {"q": q}).json()["data"]
+
+        # Começa com o texto primeiro, depois as que só contêm; sem espaço/maiúsculas
+        self.assertEqual([t["label"] for t in ask("Synergy")], ["synergy-token", "synergy-target", "repeatable-synergy"])
+        self.assertEqual([t["label"] for t in ask("synergy t")], ["synergy-token", "synergy-target"])
+        self.assertEqual(ask("s"), [])          # curto demais
+        self.assertEqual(ask("rare"), [])       # tag com 1 carta não é sugerida
+        self.assertEqual(ask("xyz"), [])
+
+    def test_builder_form_has_tag_picker(self):
+        html = self.client.get(reverse("cards:builder")).content.decode()
+        self.assertIn('id="wanted-tags"', html)
+        self.assertIn('id="wanted-input"', html)
+        self.assertIn('id="priority-tags"', html)
+        self.assertIn(reverse("cards:commander_tags"), html)
+
+        # Volta preenchido quando o formulário é reexibido com erro
+        html = self.client.post(reverse("cards:builder"), {
+            "commander": "Inexistente", "priority_tags": "synergy-target,landfall"}).content.decode()
+        self.assertIn('value="synergy-target,landfall"', html)
 
     def test_partial_commander_name_uses_autocomplete(self):
         from cards.services import builder
@@ -2478,3 +2748,73 @@ class PriceFetchTests(TestCase):
         card = Card.objects.get()
         self.assertEqual(card.price_brl, Decimal("0.90"))
         self.assertFalse(BrlPrice.objects.exists())
+
+
+class WantedItemsTests(TestCase):
+    """Itens escolhidos: tags, tags só de criatura e tipos de criatura."""
+
+    def test_parse_wanted_items(self):
+        from cards.services.builder import parse_wanted
+
+        for label in ("repeatable-crime", "synergy-target"):
+            TagStat.objects.create(kind="oracle", label=label, count=50)
+
+        tags, only, tribes = parse_wanted(
+            ["Repeatable Crime:criatura", "synergy-target", "tipo:Vampire", "tipo:vampire", "nao-existe:criatura"]
+        )
+
+        self.assertEqual(tags, ["repeatable-crime", "synergy-target"])
+        self.assertEqual(only, {"repeatable-crime"})
+        self.assertEqual(tribes, ["vampire"])
+
+    def test_creature_only_tag_ignores_other_card_types(self):
+        from cards.services.builder import wanted_tokens
+        from cards.services.profile import Profile
+
+        profile = Profile(source="x", sample_size=0, role_targets={}, creature_target=None, curve_targets={})
+        profile.priority_tags = ["repeatable-crime", "unheroic"]
+        profile.creature_only_tags = {"repeatable-crime"}
+        profile.user_tribes = ["vampire"]
+
+        self.assertEqual(wanted_tokens(profile),
+                         ["repeatable-crime:criatura", "unheroic", "tipo:vampire"])
+
+    def test_creature_type_autocomplete(self):
+        from django.core.cache import cache
+
+        cache.set("c10magic:creature-types", ["Vampire", "Vedalken", "Rogue", "Bird"], 60)
+
+        data = self.client.get(reverse("cards:creature_types_autocomplete"), {"q": "va"}).json()["data"]
+
+        self.assertEqual(data, ["Vampire"])
+        self.assertEqual(self.client.get(reverse("cards:creature_types_autocomplete"), {"q": "v"}).json()["data"], [])
+
+
+
+class PriceEstimateTests(TestCase):
+    """Estimativa em R$ das cartas sem preço da LigaMagic."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_default_factors_without_data(self):
+        from cards.services.exchange import DEFAULT_FACTORS, estimate_brl
+
+        # US$ 0,10 → 0,10 × 5 × 0,25 (faixa até US$ 0,10)
+        self.assertEqual(estimate_brl("0.10", Decimal("5")), (Decimal("0.5") * DEFAULT_FACTORS[1]).quantize(Decimal("0.01")))
+        self.assertEqual(estimate_brl("0.001", Decimal("5")), Decimal("0.01"))      # nunca zero
+        self.assertEqual(estimate_brl("0", Decimal("5")), Decimal("0"))
+        self.assertIsNone(estimate_brl(None, Decimal("5")))
+
+    def test_factors_learned_from_known_prices(self):
+        from cards.services.exchange import MIN_SAMPLES, estimate_brl
+
+        # 60 cartas de US$ 0,20 que custam R$ 0,10 na LigaMagic (10% de 0,20 × 5)
+        for i in range(MIN_SAMPLES + 10):
+            name = f"Common {i}"
+            CachedCard.objects.create(scryfall_id=f"c{i}", oracle_id=f"o{i}", name=name, name_normalized=name.lower(),
+                                      data={"name": name, "prices": {"usd": "0.20"}}, updated_at=timezone.now())
+            BrlPrice.objects.create(name=name, name_normalized=name.lower(), price_brl=Decimal("0.10"),
+                                    updated_at=timezone.now())
+
+        self.assertEqual(estimate_brl("0.20", Decimal("5")), Decimal("0.10"))

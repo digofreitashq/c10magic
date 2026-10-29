@@ -1,16 +1,16 @@
 """
-Perfil de um comandante, tirado dos decks que as pessoas montam com ele.
+Perfil de um comandante: o "espelho" do deck médio dele no EDHREC.
 
 Fontes, na ordem:
 
-1. Deck médio do EDHREC (average-decks/<comandante>): proporção de cada papel
-   (ramp, compra, remoção, board wipe) pelas tags de função das cartas.
+1. Deck médio do EDHREC (average-decks/<comandante>, ou a versão "budget"
+   quando o deck tem orçamento): quantas cartas de cada papel (ramp, compra,
+   remoção, board wipe) e quantas criaturas, pelas tags de função das cartas.
 2. Sem deck médio: as cartas mais jogadas com o comandante (pool do EDHREC).
 3. Sem nada: proporções padrão.
 
-A curva de mana e a quantidade de criaturas vêm da página do comandante no
-EDHREC. Temas são tags muito mais frequentes nesses decks do que no Magic em
-geral (ex.: "sacrifice-outlet" num deck de aristocratas).
+Também lê o que muda a estratégia: deck tribal, voltron (equipamentos e
+proteção), sinergia com terrenos (landfall) e com artefatos.
 """
 
 import math
@@ -37,9 +37,7 @@ ROLES = [
 ]
 ROLE_LABELS = {key: label for key, label, _, _ in ROLES}
 
-# Prioridade: sinergia (cartas fora das cotas, None) > remoção > compra > board wipe > ramp.
-# Usada para preencher as cotas, cortar quando não cabem e decidir onde
-# economizar (ou gastar a sobra) do orçamento.
+# Ordem em que as cotas são preenchidas (uma carta com dois papéis fica no primeiro)
 ROLE_PRIORITY = ["removal", "draw", "sweeper", "ramp"]
 
 # Quando as cotas não cabem nas vagas: quanto cada papel perde por vez
@@ -70,6 +68,7 @@ def trim_roles(targets: dict[str, int], cap: int) -> dict[str, int]:
 
     return targets
 
+
 # Faixas de valor de mana: 1 (inclui 0) … 7 (7 ou mais)
 CURVE_BUCKETS = range(1, 8)
 
@@ -85,17 +84,6 @@ THEME_MIN_SHARE = 0.12
 THEME_MIN_LIFT = 2.5
 THEME_LIMIT = 6
 
-# Funções do comandante que mudam o que vale a pena jogar
-COMMANDER_RULES = [
-    {
-        "tags": {"cost-reducer-creature", "cost-reducer"},
-        "label": "O comandante reduz o custo de criaturas: criaturas caras valem mais",
-        "applies": lambda c: c.is_creature and c.cmc >= 5,
-        "bonus": lambda c: 0.035 * (min(c.cmc, 9) - 4),
-    },
-]
-
-
 # Comandantes que se beneficiam de terrenos (landfall, terreno extra, terrenos
 # no cemitério…): para eles, ramp de terreno é sinergia, não só aceleração
 LAND_SYNERGY_TAGS = {
@@ -104,14 +92,25 @@ LAND_SYNERGY_TAGS = {
     "lands-in-graveyard-matter", "recursion-land", "reanimate-land", "synergy-land-graveyard",
     "land-sacrifice", "sac-outlet-land", "sacrifice-outlet-land",
 }
+LAND_THEMES = {"landfall", "lands matter", "lands"}
 
-
-# Ramp que põe terreno em jogo (ou deixa jogar terreno a mais). Em decks com
-# sinergia de terrenos, só isto conta como ramp: mana dork e pedra de mana não.
+# Ramp que põe terreno em jogo ou deixa jogar mais de um terreno no turno.
+# Em decks com sinergia de terrenos, só isto conta como ramp: mana dork e pedra de mana não.
 LAND_RAMP_TAGS = {
     "land-ramp", "rampant-growth", "extra-land", "play-additional-land",
     "mass-land-ramp", "multi-land-ramp", "tutor-land-to-battlefield",
 }
+
+# Comandantes que ganham com artefatos: pedras de mana também são sinergia
+ARTIFACT_SYNERGY_TAGS = {
+    "artifact-matters", "synergy-artifact", "artifact-count-matters", "affinity-for-artifacts",
+    "improvise", "metalcraft",
+}
+ARTIFACT_THEMES = {"artifacts", "treasure", "affinity"}
+
+# Voltron: um tema principal do comandante no EDHREC; valoriza equipamentos e proteção
+VOLTRON_THEMES = {"voltron", "equipment"}
+PROTECTION_TAGS = {"gives-hexproof", "gives-indestructible", "gives-protection", "gives-shroud", "gives-ward"}
 
 
 def ramp_tags_for(land_deck: bool) -> set[str]:
@@ -128,7 +127,8 @@ def is_mana_rock(tags) -> bool:
 
 # "typal-bird", "tribal-elf"… → tribo; estas não são tipos de criatura
 TRIBE_TAG_RE = re.compile(r"^(?:typal|tribal)-([a-z]+)$")
-NOT_TRIBES = {"creature", "spell", "matters", "payoff", "lord", "tribal", "typal", "changeling"}
+NOT_TRIBES = {"creature", "spell", "matters", "payoff", "lord", "tribal", "typal", "changeling",
+              "equipment", "artifact", "aura", "vehicle", "land"}
 
 
 def tribes_from_tags(tags) -> list[str]:
@@ -155,6 +155,10 @@ def bucket_of(cmc) -> int:
     return min(max(int(cmc or 0), 1), 7)
 
 
+def is_creature_card(data: dict) -> bool:
+    return "Creature" in (data.get("type_line") or "").split(" // ")[0]
+
+
 @dataclass
 class Profile:
     source: str
@@ -163,11 +167,16 @@ class Profile:
     creature_target: int | None
     curve_targets: dict[int, int]
     themes: list[dict] = field(default_factory=list)
-    rules: list[dict] = field(default_factory=list)
     average_lands: int | None = None
-    land_synergy: list[str] = field(default_factory=list)   # tags do comandante ligadas a terrenos
-    tribes: list[str] = field(default_factory=list)          # tipo(s) de criatura de um deck tribal
-    # Orçamento baixo e comandante sem sinergia com terrenos: sem ramp nem pedras de mana
+    land_synergy: list[str] = field(default_factory=list)       # o que liga o comandante a terrenos
+    artifact_synergy: list[str] = field(default_factory=list)   # ...e a artefatos
+    voltron: bool = False
+    tribes: list[str] = field(default_factory=list)              # tipo(s) de criatura de um deck tribal
+    # Tags e tipos de criatura que o usuário escolheu valorizar
+    priority_tags: list[str] = field(default_factory=list)
+    creature_only_tags: set[str] = field(default_factory=set)
+    user_tribes: list[str] = field(default_factory=list)
+    # Orçamento baixo: sem ramp (ou só o ramp que tem sinergia com o comandante)
     skip_ramp: bool = False
     skip_mana_rocks: bool = False
 
@@ -182,8 +191,8 @@ class Profile:
 
 
 # Tags genéricas de papel não são tema: se fossem, qualquer ramp (ou remoção…)
-# ganharia o bônus de sinergia e passaria por cima da prioridade dos papéis.
-# Tags mais específicas, como "edict" num deck de sacrifício, continuam valendo.
+# ganharia o bônus de tema. Tags mais específicas, como "edict" num deck de
+# sacrifício, continuam valendo.
 GENERIC_ROLE_TAGS = (
     next(tags for key, _, tags, _ in ROLES if key == "ramp")
     | {"acceleration", "mana-ramp", "mana-producer", "removal", "spot-removal", "creature-removal",
@@ -212,11 +221,13 @@ def _scale(counts: dict, slots: int) -> dict:
     return result
 
 
-def _average_deck_sample(commander_names: list[str]) -> list[dict]:
+def _average_deck_sample(commander_names: list[str], budget: bool = False) -> list[dict]:
     """Cartas não-terreno do deck médio do EDHREC (JSON do Scryfall)."""
 
     path = commander_path(commander_names).replace("commanders/", "average-decks/", 1)
-    data = get_page(path)
+    data = get_page(path + "/budget") if budget else None
+    if not ((data or {}).get("deck") or {}).get("cards"):
+        data = get_page(path)
 
     deck = (data or {}).get("deck") or {}
     cards = deck.get("cards") if isinstance(deck, dict) else None
@@ -244,6 +255,8 @@ def _average_deck_sample(commander_names: list[str]) -> list[dict]:
 
 
 def _themes(sample_tags: list[set[str]]) -> list[dict]:
+    """Tags muito mais frequentes no deck médio do que no Magic em geral."""
+
     if not sample_tags:
         return []
 
@@ -277,11 +290,17 @@ def _themes(sample_tags: list[set[str]]) -> list[dict]:
     return themes[:THEME_LIMIT]
 
 
-def build_profile(commanders: list[dict], pool: Pool, slots: int) -> Profile:
+def _top_themes(pool: Pool, count: int) -> set[str]:
+    """Os temas mais comuns dos decks do comandante no EDHREC, em minúsculas."""
+
+    return {name.lower() for name, _ in (pool.themes or [])[:count]} if pool.found else set()
+
+
+def build_profile(commanders: list[dict], pool: Pool, slots: int, budget: bool = False) -> Profile:
     names = [c["name"] for c in commanders]
 
-    sample = _average_deck_sample(names) if pool.found else []
-    source = "deck médio do EDHREC"
+    sample = _average_deck_sample(names, budget) if pool.found else []
+    source = "deck médio do EDHREC" + (" (decks baratos)" if budget and pool.budget else "")
 
     if not sample and pool.found:
         # Sem deck médio: as mais jogadas com o comandante
@@ -301,13 +320,16 @@ def build_profile(commanders: list[dict], pool: Pool, slots: int) -> Profile:
 
     average_lands = (pool.type_distribution or {}).get("Land") if pool.found else None
 
-    # ---- Funções do comandante
+    # ---- O que o comandante faz (tags dele + temas dos decks no EDHREC)
     commander_tags = set()
     for row in TagIndex.objects.filter(kind=TagIndex.ORACLE,
                                        target_id__in=[card_fields(c)["oracle_id"] for c in commanders]):
         commander_tags |= set(row.label_list)
 
-    land_synergy = sorted(commander_tags & LAND_SYNERGY_TAGS)
+    top3 = _top_themes(pool, 3)
+    land_synergy = sorted(commander_tags & LAND_SYNERGY_TAGS) + sorted(top3 & LAND_THEMES)
+    artifact_synergy = sorted(commander_tags & ARTIFACT_SYNERGY_TAGS) + sorted(top3 & ARTIFACT_THEMES)
+    voltron = bool(_top_themes(pool, 2) & VOLTRON_THEMES)
 
     # ---- Papéis (em deck de terrenos, ramp = só ramp de terreno)
     role_tag_sets = {
@@ -321,45 +343,36 @@ def build_profile(commanders: list[dict], pool: Pool, slots: int) -> Profile:
             key: round(sum(1 for tags in sample_tags if tags & role_tag_sets[key]) / size * slots)
             for key, _, _, _ in ROLES
         }
-
-        # Mais terrenos que o deck médio: precisa de menos ramp
-        if average_lands and average_lands < 40:
-            role_targets["ramp"] = max(role_targets["ramp"] - (40 - average_lands) // 2, 3)
-
         role_targets = trim_roles(role_targets, int(slots * MAX_ROLE_SHARE))
     else:
         role_targets = {key: quota for key, _, _, quota in ROLES}
         source = "proporções padrão" if not sample else source
 
-    # ---- Curva e criaturas (página do comandante)
+    # ---- Criaturas: as do deck médio; sem ele, a distribuição de tipos da página
+    creature_target = None
+    if sample:
+        creature_target = round(sum(is_creature_card(d) for d in sample) / len(sample) * slots)
+    elif pool.found and (pool.type_distribution or {}).get("Creature"):
+        distribution = pool.type_distribution
+        nonland = sum(v for k, v in distribution.items() if k != "Land") or 1
+        creature_target = round(distribution["Creature"] / nonland * slots)
+
+    # ---- Curva (só para o relatório)
     curve_targets = {}
     raw_curve = (pool.mana_curve or {}) if pool.found else {}
+    buckets = {b: 0 for b in CURVE_BUCKETS}
     if raw_curve:
-        buckets = {b: 0 for b in CURVE_BUCKETS}
         for cmc, count in raw_curve.items():
             buckets[bucket_of(float(cmc))] += count
         curve_targets = _scale(buckets, slots)
     elif sample:
-        buckets = {b: 0 for b in CURVE_BUCKETS}
         for data in sample:
             buckets[bucket_of(data.get("cmc"))] += 1
         curve_targets = _scale(buckets, slots)
 
-    creature_target = None
-    distribution = pool.type_distribution if pool.found else {}
-    if distribution.get("Creature"):
-        nonland = sum(v for k, v in distribution.items() if k != "Land") or 1
-        creature_target = round(distribution["Creature"] / nonland * slots)
-
-    # Tribo: tags typal-X / tribal-X do comandante ou dos temas do deck médio
+    # ---- Tribo: tags typal-X / tribal-X do comandante ou dos temas do deck médio
     themes = _themes(sample_tags)
     tribes = tribes_from_tags(commander_tags) or tribes_from_tags(t["tag"] for t in themes)
-
-    rules = [
-        {"label": rule["label"], "index": index}
-        for index, rule in enumerate(COMMANDER_RULES)
-        if rule["tags"] & commander_tags
-    ]
 
     return Profile(
         source=source,
@@ -368,8 +381,9 @@ def build_profile(commanders: list[dict], pool: Pool, slots: int) -> Profile:
         creature_target=creature_target,
         curve_targets=curve_targets,
         themes=themes,
-        rules=rules,
         average_lands=average_lands,
         land_synergy=land_synergy,
+        artifact_synergy=artifact_synergy,
+        voltron=voltron,
         tribes=tribes,
     )

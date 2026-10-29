@@ -291,6 +291,12 @@ class BuilderForm(forms.Form):
         help_text="Opcional. O comandante e os 40 terrenos básicos não contam.",
         widget=forms.NumberInput(attrs={"step": "1", "placeholder": "Sem limite"}),
     )
+    # Tags a valorizar, separadas por vírgula (montado pela página; ver app.js)
+    priority_tags = forms.CharField(required=False, widget=forms.HiddenInput(attrs={"id": "priority-tags"}))
+
+    def clean_priority_tags(self):
+        raw = self.cleaned_data.get("priority_tags") or ""
+        return [tag.strip() for tag in raw.split(",") if tag.strip()]
 
 
 class BudgetForm(forms.Form):

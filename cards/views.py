@@ -51,6 +51,7 @@ from cards.services.exchange import usd_brl
 from cards.services.importer import decode_upload
 from cards.services.prices import fetch_price, known_prices, price_queue
 from cards.services.scryfall import ScryfallClient, ScryfallQueryError, card_fields
+from cards.services.tagpicker import commander_tag_options, creature_type_suggestions, tag_suggestions
 from cards.services.similar import SCRYFALL_SORT as SIMILAR_SCRYFALL_SORT
 from cards.services.similar import PRIMARY_TYPES, build_reference, collection_queryset
 from cards.services.similar import scryfall_query as similar_query
@@ -575,6 +576,9 @@ def expert_deck(request, pk):
         "export_formats": EXPORT_FORMATS,
         "cover": deck_summaries([deck])[0]["cover"],
         "radar": radar_data(deck.build_report),
+        "open_report": bool(request.GET.get("relatorio")),
+        "wanted_value": ",".join((deck.build_report or {}).get("wanted_tags") or []),
+        "wanted_commanders": "|".join((deck.build_report or {}).get("commanders") or []),
     }
 
     if not view.items:
@@ -699,7 +703,8 @@ def builder(request):
         names = [data["commander"], data.get("partner") or ""]
 
         try:
-            deck = build_commander_deck(names, data.get("budget"), usd_brl())
+            deck = build_commander_deck(names, data.get("budget"), usd_brl(),
+                                        priority_tags=data.get("priority_tags"))
         except BuildError as exc:
             form.add_error(None, str(exc))
         except requests.RequestException as exc:
@@ -734,21 +739,39 @@ def _target_overrides(request, report):
     return report.get("overrides")
 
 
+def _priority_tags(request, report):
+    """Tags do relatório (campo priority_tags, mesmo vazio); sem o campo, mantém as do deck."""
+
+    if "priority_tags" in request.POST:
+        return [t.strip() for t in request.POST["priority_tags"].split(",") if t.strip()]
+
+    return report.get("wanted_tags")
+
+
 @require_POST
 def builder_rebuild(request, pk):
     deck = get_object_or_404(Deck, pk=pk)
     report = deck.build_report or {}
+    from_report = bool(request.POST.get("open_report"))
 
     try:
         build_commander_deck(report.get("commanders") or [c.name for c in deck.commanders],
                              deck.budget, usd_brl(), deck=deck,
-                             overrides=_target_overrides(request, report))
+                             overrides=_target_overrides(request, report),
+                             priority_tags=_priority_tags(request, report))
     except (BuildError, requests.RequestException) as exc:
         messages.error(request, f"Não foi possível reconstruir: {exc}")
     else:
-        messages.success(request, "Deck reconstruído com os preços atuais.")
+        deck.refresh_from_db()
+        wanted = (deck.build_report or {}).get("wanted") or []
+        summary = "; ".join(f"{w['tag']}: {w['in_deck']} de {w['candidates']} cartas" for w in wanted)
+        messages.success(
+            request,
+            "Deck gerado de novo" + (f". Tags: {summary}." if summary else " com os preços atuais."),
+        )
 
-    return redirect(reverse("cards:expert_deck", args=[deck.pk]) + "?construido=1")
+    suffix = "?relatorio=1" if from_report else "?construido=1"
+    return redirect(reverse("cards:expert_deck", args=[deck.pk]) + suffix)
 
 
 @require_POST
@@ -897,6 +920,39 @@ def prices(request):
             }
 
     return JsonResponse({"prices": result, "queue": price_queue.size()})
+
+
+@require_GET
+def commander_tags(request):
+    """Tags do comandante (e do segundo), para o usuário escolher quais valorizar."""
+
+    names = [request.GET.get("name", ""), request.GET.get("partner", "")]
+    names = [n.strip() for n in names if n.strip()]
+
+    if not names:
+        return JsonResponse({"commanders": [], "tags": [], "ready": True})
+
+    try:
+        return JsonResponse(commander_tag_options(names))
+    except LookupError as exc:
+        return JsonResponse({"error": str(exc), "tags": []}, status=404)
+    except requests.RequestException:
+        return JsonResponse({"error": "Não foi possível consultar o Scryfall.", "tags": []}, status=502)
+
+
+@require_GET
+def tags_autocomplete(request):
+    return JsonResponse({"data": tag_suggestions(request.GET.get("q", ""))})
+
+
+@require_GET
+def creature_types_autocomplete(request):
+    try:
+        data = creature_type_suggestions(request.GET.get("q", ""))
+    except requests.RequestException:
+        data = []
+
+    return JsonResponse({"data": data})
 
 
 @require_GET

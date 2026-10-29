@@ -44,7 +44,11 @@ def _kind_is_stale(kind, limit):
     synced = last_sync(kind)
 
     # Sincronizações antigas não guardavam as contagens
-    return synced is None or synced < limit or not TagStat.objects.filter(kind=kind).exists()
+    if synced is None or synced < limit or not TagStat.objects.filter(kind=kind).exists():
+        return True
+
+    # Sincronização de antes das descrições: refaz uma vez para guardá-las
+    return kind == TagIndex.ORACLE and not TagStat.objects.filter(kind=kind).exclude(description="").exists()
 
 
 def is_stale():
@@ -70,6 +74,7 @@ def sync_kind(kind: str, session: requests.Session | None = None) -> int:
 
     index = defaultdict(set)
     counts = {}
+    descriptions = {}
 
     for tag in tags:
         label = tag.get("label")
@@ -77,6 +82,7 @@ def sync_kind(kind: str, session: requests.Session | None = None) -> int:
             continue
         targets = tag.get(id_key) or []
         counts[label] = len(targets)
+        descriptions[label] = (tag.get("description") or "").strip()
         for target_id in targets:
             index[target_id].add(label)
 
@@ -85,7 +91,8 @@ def sync_kind(kind: str, session: requests.Session | None = None) -> int:
     with transaction.atomic():
         TagStat.objects.filter(kind=kind).delete()
         TagStat.objects.bulk_create(
-            (TagStat(kind=kind, label=label, count=count) for label, count in counts.items()),
+            (TagStat(kind=kind, label=label, count=count, description=descriptions.get(label, ""))
+             for label, count in counts.items()),
             batch_size=5000,
         )
 
@@ -159,6 +166,13 @@ background_tags = BackgroundTagSync()
 def tag_counts(labels, kind=TagIndex.ORACLE) -> dict[str, int]:
     return dict(
         TagStat.objects.filter(kind=kind, label__in=list(labels)).values_list("label", "count")
+    )
+
+
+def tag_descriptions(labels, kind=TagIndex.ORACLE) -> dict[str, str]:
+    return dict(
+        TagStat.objects.filter(kind=kind, label__in=list(labels)).exclude(description="")
+        .values_list("label", "description")
     )
 
 

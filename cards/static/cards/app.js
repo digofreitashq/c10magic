@@ -344,6 +344,354 @@
     });
   });
 
+  // ---------- construtor: tags para valorizar ----------
+
+  const wantedBox = document.getElementById("wanted-tags");
+
+  if (wantedBox) {
+    const form = wantedBox.closest("form");
+    // Na página Gerar deck há campos de comandante; no relatório do deck, os
+    // nomes vêm da própria página (data-commanders) e as tags não são
+    // marcadas sozinhas (vale o que o deck já tem)
+    const commanderInput = form.querySelector("input[name=commander]");
+    const partnerInput = form.querySelector("input[name=partner]");
+    const fixedNames = (wantedBox.dataset.commanders || "").split("|").filter(Boolean);
+    const preselect = wantedBox.dataset.preselect !== "0";
+    const hidden = document.getElementById("priority-tags");
+    const statusEl = document.getElementById("wanted-status");
+    const errorEl = document.getElementById("wanted-error");
+    const suggestedEl = document.getElementById("wanted-suggested");
+    const extraEl = document.getElementById("wanted-extra");
+    const input = document.getElementById("wanted-input");
+    const datalist = document.getElementById("tag-suggestions");
+    const searchUrl = (label) => `/?q=otag%3A${encodeURIComponent(label)}`;
+
+    // label -> { text, count }: as marcadas (vão no envio do formulário)
+    const selected = new Map();
+    // tags do comandante, no estado atual do carregamento
+    let commanderTags = [];
+    // o que o usuário já desmarcou/marcou à mão (não volta ao padrão sugerido)
+    const touched = new Set();
+
+    // tipos de criatura escolhidos (nome em minúsculas -> texto)
+    const tribes = new Map();
+    let commanderTypes = [];
+
+    (hidden.value || "").split(",").map((t) => t.trim()).filter(Boolean).forEach((item) => {
+      if (item.startsWith("tipo:")) {
+        const name = item.slice(5);
+        tribes.set(name, name.charAt(0).toUpperCase() + name.slice(1));
+        return;
+      }
+      const creature = item.endsWith(":criatura");
+      const label = creature ? item.slice(0, -9) : item;
+      selected.set(label, { text: label.replace(/-/g, " "), count: null, creature });
+    });
+
+    const typesEl = document.getElementById("wanted-types");
+    const typeInput = document.getElementById("type-input");
+    const typeList = document.getElementById("type-suggestions");
+
+    const sync = () => {
+      hidden.value = [
+        ...[...selected.entries()].map(([label, info]) => label + (info.creature ? ":criatura" : "")),
+        ...[...tribes.keys()].map((name) => `tipo:${name}`),
+      ].join(",");
+    };
+
+    const chip = (label, text, count, { removable, suggested, description }) => {
+      const wrap = document.createElement("label");
+      wrap.className = `chip${suggested ? " is-suggested" : ""}`;
+      if (description) wrap.title = description;
+      const span = document.createElement("span");
+      span.textContent = text;
+      if (count) {
+        const small = document.createElement("small");
+        small.textContent = count;
+        span.append(" ", small);
+      }
+      const peek = document.createElement("a");
+      peek.className = "peek";
+      peek.href = searchUrl(label);
+      peek.target = "_blank";
+      peek.rel = "noopener";
+      peek.title = `Ver as cartas com otag:${label}`;
+      peek.textContent = "↗";
+      span.append(peek);
+
+      // Só criaturas: a tag só conta em criaturas (aparece nas marcadas)
+      if (selected.has(label)) {
+        const only = document.createElement("button");
+        only.type = "button";
+        only.className = `only-creature${selected.get(label).creature ? " is-on" : ""}`;
+        only.textContent = "criatura";
+        only.title = "Só vale em criaturas (a habilidade da criatura, não mágicas e encantamentos)";
+        only.setAttribute("aria-pressed", String(!!selected.get(label).creature));
+        only.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const info = selected.get(label);
+          info.creature = !info.creature;
+          sync();
+          render();
+        });
+        span.append(only);
+      }
+      return { wrap, span };
+    };
+
+    function render() {
+      suggestedEl.replaceChildren();
+      extraEl.replaceChildren();
+
+      commanderTags.forEach((tag) => {
+        const { wrap, span } = chip(tag.label, tag.text, tag.count, { suggested: tag.suggested, description: tag.description });
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = selected.has(tag.label);
+        box.addEventListener("change", () => {
+          touched.add(tag.label);
+          if (box.checked) selected.set(tag.label, { text: tag.text, count: tag.count, creature: false });
+          else selected.delete(tag.label);
+          sync();
+          render();
+        });
+        wrap.prepend(box);
+        wrap.append(span);
+        suggestedEl.append(wrap);
+      });
+
+      // Escolhidas que não são do comandante (digitadas por você)
+      const fromCommander = new Set(commanderTags.map((t) => t.label));
+      [...selected.entries()].filter(([label]) => !fromCommander.has(label)).forEach(([label, info]) => {
+        const { wrap, span } = chip(label, info.text, info.count, {});
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "×";
+        remove.title = "Remover";
+        remove.setAttribute("aria-label", `Remover ${info.text}`);
+        remove.addEventListener("click", () => {
+          selected.delete(label);
+          sync();
+          render();
+        });
+        span.append(remove);
+        wrap.append(span);
+        extraEl.append(wrap);
+      });
+
+      renderTypes();
+      sync();
+    }
+
+    function renderTypes() {
+      typesEl.replaceChildren();
+      const names = new Map(commanderTypes.map((t) => [t.toLowerCase(), t]));
+      tribes.forEach((text, name) => names.set(name, text));
+      names.forEach((text, name) => {
+        const wrap = document.createElement("label");
+        wrap.className = "chip";
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = tribes.has(name);
+        box.addEventListener("change", () => {
+          if (box.checked) tribes.set(name, text);
+          else tribes.delete(name);
+          sync();
+          renderTypes();
+        });
+        const span = document.createElement("span");
+        span.textContent = text;
+        wrap.append(box, span);
+        typesEl.append(wrap);
+      });
+    }
+
+    // ---- tags do comandante (e do segundo)
+    let loadTimer = null;
+    let loadToken = 0;
+
+    async function loadCommanderTags() {
+      const name = commanderInput ? commanderInput.value.trim() : (fixedNames[0] || "");
+      const partner = partnerInput ? partnerInput.value.trim() : (commanderInput ? "" : (fixedNames[1] || ""));
+      const token = ++loadToken;
+
+      if (name.length < 3) {
+        commanderTags = [];
+        statusEl.textContent = "Digite o comandante para ver as tags dele.";
+        render();
+        return;
+      }
+
+      statusEl.textContent = "Buscando as tags do comandante…";
+
+      try {
+        const params = new URLSearchParams({ name, partner });
+        const response = await fetch(`${wantedBox.dataset.commanderUrl}?${params}`);
+        const data = await response.json();
+        if (token !== loadToken) return;
+
+        if (!response.ok) {
+          commanderTags = [];
+          statusEl.textContent = data.error || "Não foi possível buscar as tags.";
+          render();
+          return;
+        }
+
+        commanderTags = data.tags;
+        // Sugestão inicial: as que parecem sinergia (só uma vez por tag)
+        data.tags.forEach((tag) => {
+          if (tag.suggested && preselect && !touched.has(tag.label)) {
+            selected.set(tag.label, { text: tag.text, count: tag.count, creature: false });
+          }
+        });
+        commanderTypes = data.types || [];
+
+        statusEl.textContent = !data.ready
+          ? "As tags do Scryfall ainda estão sendo baixadas (cerca de um minuto). Tente de novo em seguida."
+          : data.tags.length
+            ? `Tags de ${data.commanders.join(" + ")}. As marcadas parecem sinergia; ajuste como quiser.`
+            : `${data.commanders.join(" + ")} não tem tags específicas; você pode acrescentar as suas abaixo.`;
+        render();
+      } catch (error) {
+        if (token !== loadToken) return;
+        statusEl.textContent = "Não foi possível buscar as tags agora.";
+      }
+    }
+
+    const scheduleLoad = (delay) => {
+      clearTimeout(loadTimer);
+      loadTimer = setTimeout(loadCommanderTags, delay);
+    };
+
+    if (commanderInput) {
+      commanderInput.addEventListener("change", () => scheduleLoad(0));
+      commanderInput.addEventListener("input", () => scheduleLoad(900));
+    }
+    if (partnerInput) {
+      partnerInput.addEventListener("change", () => scheduleLoad(0));
+      partnerInput.addEventListener("input", () => scheduleLoad(900));
+      // O botão +/− esvazia o segundo comandante: recarrega
+      partnerInput.addEventListener("input", () => scheduleLoad(300));
+    }
+
+    // ---- autocompletar de qualquer tag
+    let suggestTimer = null;
+    let known = new Map();
+
+    input.addEventListener("input", () => {
+      errorEl.hidden = true;
+      clearTimeout(suggestTimer);
+      suggestTimer = setTimeout(async () => {
+        const query = input.value.trim();
+        if (query.length < 2) return;
+        try {
+          const response = await fetch(`${wantedBox.dataset.tagsUrl}?q=${encodeURIComponent(query)}`);
+          const { data } = await response.json();
+          known = new Map(data.map((t) => [t.label, t]));
+          datalist.replaceChildren(...data.map((t) => {
+            const option = document.createElement("option");
+            option.value = t.label;
+            option.label = `${t.count} cartas${t.description ? " — " + t.description.slice(0, 80) : ""}`;
+            return option;
+          }));
+        } catch (error) {
+          /* sugestão é opcional */
+        }
+      }, 200);
+    });
+
+    async function addTyped() {
+      const label = input.value.trim().toLowerCase().replace(/\s+/g, "-");
+      if (!label) return;
+
+      let info = known.get(label);
+
+      if (!info) {
+        // Digitou sem escolher da lista: confere se a tag existe
+        try {
+          const response = await fetch(`${wantedBox.dataset.tagsUrl}?q=${encodeURIComponent(label)}`);
+          const { data } = await response.json();
+          info = data.find((t) => t.label === label);
+        } catch (error) {
+          info = null;
+        }
+      }
+
+      if (!info) {
+        errorEl.textContent = `Não existe a tag "${label}". Escolha uma da lista que aparece ao digitar.`;
+        errorEl.hidden = false;
+        return;
+      }
+
+      errorEl.hidden = true;
+      selected.set(info.label, { text: info.text, count: info.count, creature: false });
+      touched.add(info.label);
+      input.value = "";
+      datalist.replaceChildren();
+      render();
+    }
+
+    document.getElementById("wanted-add").addEventListener("click", addTyped);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();   // não envia o formulário
+        addTyped();
+      }
+    });
+    // Escolher uma opção da lista adiciona na hora
+    input.addEventListener("change", () => { if (known.has(input.value.trim())) addTyped(); });
+
+    // ---- tipos de criatura
+    let typeTimer = null;
+    typeInput.addEventListener("input", () => {
+      clearTimeout(typeTimer);
+      typeTimer = setTimeout(async () => {
+        const query = typeInput.value.trim();
+        if (query.length < 2) return;
+        try {
+          const response = await fetch(`${wantedBox.dataset.typesUrl}?q=${encodeURIComponent(query)}`);
+          const { data } = await response.json();
+          typeList.replaceChildren(...data.map((name) => {
+            const option = document.createElement("option");
+            option.value = name;
+            return option;
+          }));
+        } catch (error) {
+          /* sugestão é opcional */
+        }
+      }, 200);
+    });
+
+    const addType = () => {
+      const value = typeInput.value.trim();
+      if (!value) return;
+      const match = [...typeList.options].find((o) => o.value.toLowerCase() === value.toLowerCase());
+      if (!match) {
+        errorEl.textContent = `Não existe o tipo "${value}". Escolha um da lista que aparece ao digitar.`;
+        errorEl.hidden = false;
+        return;
+      }
+      errorEl.hidden = true;
+      tribes.set(match.value.toLowerCase(), match.value);
+      typeInput.value = "";
+      typeList.replaceChildren();
+      renderTypes();
+      sync();
+    };
+    document.getElementById("type-add").addEventListener("click", addType);
+    typeInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        addType();
+      }
+    });
+    typeInput.addEventListener("change", addType);
+
+    render();
+    if (commanderInput ? commanderInput.value.trim() : fixedNames.length) scheduleLoad(0);
+  }
+
   const builderForm = document.getElementById("builder-form");
 
   if (builderForm) {

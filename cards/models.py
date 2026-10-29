@@ -329,6 +329,8 @@ class TagStat(models.Model):
     kind = models.CharField(max_length=16, choices=TagIndex.KIND_CHOICES)
     label = models.CharField(max_length=255)
     count = models.PositiveIntegerField()
+    # Texto do Scryfall Tagger explicando a tag (só uma parte delas tem)
+    description = models.TextField(blank=True, default="")
 
     class Meta:
         unique_together = [("kind", "label")]

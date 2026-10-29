@@ -135,6 +135,9 @@ class Pool:
     type_distribution: dict[str, int] = field(default_factory=dict)
     # {"1": 7, "2": 16, ...}: quantas mágicas de cada valor de mana no deck típico
     mana_curve: dict[str, int] = field(default_factory=dict)
+    # Temas dos decks do comandante, do mais comum ao menos: [("Voltron", 120), ...]
+    themes: list[tuple[str, int]] = field(default_factory=list)
+    budget: bool = False      # página dos decks baratos (commanders/<nome>/budget)
 
     @property
     def cards(self) -> dict[str, PoolCard]:
@@ -147,16 +150,31 @@ class Pool:
         return unique
 
 
-def commander_pool(commander_names: list[str]) -> Pool:
+def commander_pool(commander_names: list[str], budget: bool = False) -> Pool:
+    """
+    Cartas jogadas com o comandante. Com budget=True, a página dos decks
+    baratos do EDHREC (as porcentagens são entre esses decks); se ela não
+    existir, a página normal.
+    """
+
+    if budget:
+        pool = _commander_pool(commander_names, "/budget")
+        if pool.found:
+            return pool
+
+    return _commander_pool(commander_names)
+
+
+def _commander_pool(commander_names: list[str], suffix: str = "") -> Pool:
     def has_cards(page):
         return bool(((page or {}).get("container") or {}).get("json_dict", {}).get("cardlists"))
 
-    path = commander_path(commander_names)
+    path = commander_path(commander_names) + suffix
     data = get_page(path)
 
     # Dupla sem página própria: usa o primeiro comandante
     if not has_cards(data) and len(commander_names) > 1:
-        path = commander_path(commander_names[:1])
+        path = commander_path(commander_names[:1]) + suffix
         data = get_page(path)
 
     if not has_cards(data):
@@ -192,6 +210,7 @@ def commander_pool(commander_names: list[str]) -> Pool:
     panels = data.get("panels") or {}
     piechart = (panels.get("piechart") or {}).get("content") or []
     mana_curve = panels.get("mana_curve") if isinstance(panels.get("mana_curve"), dict) else {}
+    taglinks = panels.get("taglinks") if isinstance(panels.get("taglinks"), list) else []
 
     return Pool(
         found=True,
@@ -200,4 +219,6 @@ def commander_pool(commander_names: list[str]) -> Pool:
         categories=categories,
         type_distribution={item["label"]: item["value"] for item in piechart if "label" in item},
         mana_curve={str(k): int(v) for k, v in mana_curve.items() if str(v).isdigit()},
+        themes=[(t["value"], int(t.get("count") or 0)) for t in taglinks if isinstance(t, dict) and t.get("value")],
+        budget=bool(suffix),
     )

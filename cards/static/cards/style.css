@@ -1517,6 +1517,19 @@ body.has-pool-sidebar .messages { padding-left: 1.5rem; padding-right: 1.5rem; }
 
 /* ---------- construtor ---------- */
 
+.wanted-tags { border: 1px solid var(--border); border-radius: 10px; padding: .8rem .9rem; display: grid; gap: .6rem; }
+.wanted-tags legend { font-weight: 600; font-size: .9rem; padding: 0 .3rem; }
+.wanted-tags p { margin: 0; }
+.wanted-tags .tag-picker { max-height: none; }
+.wanted-add { display: flex; gap: .5rem; }
+.wanted-add input { flex: 1; }
+.wanted-tags .chip span small { color: var(--muted); font-size: .7rem; margin-left: .2rem; }
+.wanted-tags .chip.is-suggested span { border-color: rgba(201, 162, 39, .5); }
+.wanted-tags .chip a.peek { color: var(--muted); font-size: .72rem; margin-left: .3rem; }
+.wanted-extra .chip span { display: inline-flex; align-items: center; gap: .3rem; background: rgba(139, 108, 240, .2); border-color: var(--violet); color: var(--text); }
+.wanted-extra .chip button { background: none; border: none; color: var(--muted); cursor: pointer; padding: 0 0 0 .2rem; font: inherit; }
+.wanted-extra .chip button:hover { color: var(--danger); }
+
 .commander-row { display: flex; gap: .5rem; align-items: stretch; margin-top: -.45rem; }
 .commander-row input { flex: 1; }
 .add-partner { width: 2.6rem; padding: 0; font-size: 1.2rem; line-height: 1; flex: none; }
@@ -1626,3 +1639,11 @@ body.has-pool-sidebar .messages { padding-left: 1.5rem; padding-right: 1.5rem; }
   .results-controls select { width: 100%; }
   .hover-preview .preview { display: none !important; }
 }
+
+.wanted-subtitle { margin: 1rem 0 .2rem; font-size: .95rem; }
+.only-creature {
+  margin-left: .4rem; padding: 0 .4rem; font-size: .68rem; line-height: 1.5;
+  border: 1px solid var(--border); border-radius: 999px; background: transparent;
+  color: var(--muted); cursor: pointer;
+}
+.only-creature.is-on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }

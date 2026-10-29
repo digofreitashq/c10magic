@@ -1,0 +1,38 @@
+{% comment %}
+  Escolha de tags a valorizar (página Gerar deck e relatório do deck).
+  Variáveis: value (tags separadas por vírgula), commanders (nomes separados por |,
+  quando não há campo de comandante na página), preselect ("1" marca as sugeridas).
+{% endcomment %}
+<fieldset class="wanted-tags" id="wanted-tags"
+          data-commander-url="{% url 'cards:commander_tags' %}" data-tags-url="{% url 'cards:tags_autocomplete' %}"
+          data-types-url="{% url 'cards:creature_types_autocomplete' %}"
+          data-commanders="{{ commanders|default:'' }}" data-preselect="{{ preselect|default:'1' }}">
+  <legend>Tags e tipos para valorizar</legend>
+  <p class="small muted">
+    O deck segue o deck médio do comandante no EDHREC; entre cartas parecidas, as com as tags marcadas têm <strong>preferência</strong>.
+    Marque as tags do comandante que formam o plano do deck, e acrescente outras se quiser.
+    O botão <strong>criatura</strong> de cada tag marcada faz ela valer só em criaturas.
+  </p>
+  <p class="small muted" id="wanted-status">Digite o comandante para ver as tags dele.</p>
+  <div class="tag-picker wanted-suggested" id="wanted-suggested"></div>
+
+  <div class="wanted-add">
+    <input type="text" id="wanted-input" list="tag-suggestions" autocomplete="off"
+           placeholder="Outra tag (ex.: synergy-target, landfall, sacrifice-outlet)" aria-label="Adicionar outra tag">
+    <button type="button" class="btn btn-ghost" id="wanted-add">+ Adicionar</button>
+  </div>
+  <p class="small error" id="wanted-error" hidden></p>
+  <div class="chips wanted-extra" id="wanted-extra"></div>
+  <datalist id="tag-suggestions"></datalist>
+
+  <h3 class="wanted-subtitle">Tipo de criatura</h3>
+  <p class="small muted">Em deck tribal: escolha o tipo e o construtor troca cartas por criaturas dele que fazem a mesma função.</p>
+  <div class="tag-picker wanted-suggested" id="wanted-types"></div>
+  <div class="wanted-add">
+    <input type="text" id="type-input" list="type-suggestions" autocomplete="off"
+           placeholder="Outro tipo (ex.: Vampire, Rogue, Bird)" aria-label="Adicionar tipo de criatura">
+    <button type="button" class="btn btn-ghost" id="type-add">+ Adicionar</button>
+  </div>
+  <datalist id="type-suggestions"></datalist>
+  <input type="hidden" name="priority_tags" id="priority-tags" value="{{ value|default:'' }}">
+</fieldset>

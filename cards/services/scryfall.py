@@ -206,6 +206,11 @@ class ScryfallClient:
             params={"fuzzy": name},
         )
 
+    def creature_types(self) -> list[str]:
+        data = self._get(f"{settings.SCRYFALL_API}/catalog/creature-types")
+
+        return (data or {}).get("data", [])
+
     def autocomplete(self, query: str):
         data = self._get(
             f"{settings.SCRYFALL_API}/cards/autocomplete",
